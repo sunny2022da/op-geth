@@ -161,6 +161,7 @@ var (
 		utils.RollupDisableTxPoolGossipFlag,
 		utils.RollupComputePendingBlock,
 		configFileFlag,
+		utils.VMOpcodeOptimizeFlag,
 	}, utils.NetworkFlags, utils.DatabasePathFlags)
 
 	rpcFlags = []cli.Flag{

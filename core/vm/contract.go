@@ -17,10 +17,9 @@
 package vm
 
 import (
-	"math/big"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	"math/big"
 )
 
 // ContractRef is a reference to the contract's backing object
@@ -58,8 +57,9 @@ type Contract struct {
 	CodeAddr *common.Address
 	Input    []byte
 
-	Gas   uint64
-	value *big.Int
+	Gas     uint64
+	value   *big.Int
+	rawCode []byte
 }
 
 // NewContract returns a new contract environment for the execution of EVM.
@@ -93,7 +93,10 @@ func (c *Contract) validJumpdest(dest *uint256.Int) bool {
 	if OpCode(c.Code[udest]) != JUMPDEST {
 		return false
 	}
-	return c.isCode(udest)
+	if c.isCode(udest) {
+		return true
+	}
+	return false
 }
 
 // isCode returns true if the provided PC location is an actual opcode, as

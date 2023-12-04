@@ -204,6 +204,29 @@ const (
 	LOG4
 )
 
+// 0xd0 range - customized instructions.
+const (
+	Nop OpCode = 0xd0 + iota
+	ShlAndSub
+	AndSwap1PopSwap2Swap1
+	Swap2Swap1PopJump
+	Swap1PopSwap2Swap1
+	PopSwap2Swap1Pop
+	Push2Jump
+	Push2JumpI
+	Push1Push1
+	Push1Add
+	Push1Shl
+	Push1Dup1
+	Swap1Pop
+	PopJump
+	Pop2
+	Swap2Swap1
+	Swap2Pop
+	Dup2LT
+	JumpIfZero // 0xe2
+)
+
 // 0xf0 range - closures.
 const (
 	CREATE       OpCode = 0xf0
@@ -382,6 +405,27 @@ var opCodeToString = map[OpCode]string{
 	// 0xb0 range.
 	TLOAD:  "TLOAD",
 	TSTORE: "TSTORE",
+
+	// 0xd0 range.
+	Nop:                   "NOP",
+	ShlAndSub:             "SHLANDSUB",
+	AndSwap1PopSwap2Swap1: "ANDSWAP1POPSWAP2SWAP1",
+	Swap2Swap1PopJump:     "SWAP2SWAP1POPJUMP",
+	Swap1PopSwap2Swap1:    "SWAP1POPSWAP2SWAP1",
+	PopSwap2Swap1Pop:      "POPSWAP2SWAP1POP",
+	Push2Jump:             "PUSH2JUMP",
+	Push2JumpI:            "PUSH2JUMPI",
+	Push1Push1:            "PUSH1PUSH1",
+	Push1Add:              "PUSH1ADD",
+	Push1Shl:              "PUSH1SHL",
+	Push1Dup1:             "PUSH1DUP1",
+	Swap1Pop:              "SWAP1POP",
+	PopJump:               "POPJUMP",
+	Pop2:                  "POP2",
+	Swap2Swap1:            "SWAP2SWAP1",
+	Swap2Pop:              "SWAP2POP",
+	Dup2LT:                "DUP2LT",
+	JumpIfZero:            "JUMPIFZERO",
 
 	// 0xf0 range.
 	CREATE:       "CREATE",

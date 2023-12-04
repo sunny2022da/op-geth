@@ -17,12 +17,11 @@
 package vm
 
 import (
-	"sync"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	"sync"
 )
 
 // EVMInterpreterPool is a pool of EVMInterpreter instances
@@ -34,11 +33,12 @@ var EVMInterpreterPool = sync.Pool{
 
 // Config are the configuration options for the Interpreter
 type Config struct {
-	Debug                   bool      // Enables debugging
-	Tracer                  EVMLogger // Opcode logger
-	NoBaseFee               bool      // Forces the EIP-1559 baseFee to 0 (needed for 0 price calls)
-	EnablePreimageRecording bool      // Enables recording of SHA3/keccak preimages
-	ExtraEips               []int     // Additional EIPS that are to be enabled
+	Debug                     bool      // Enables debugging
+	Tracer                    EVMLogger // Opcode logger
+	NoBaseFee                 bool      // Forces the EIP-1559 baseFee to 0 (needed for 0 price calls)
+	EnablePreimageRecording   bool      // Enables recording of SHA3/keccak preimages
+	ExtraEips                 []int     // Additional EIPS that are to be enabled
+	EnableOpcodeOptimizations bool      // Disable optimization of opcode.
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
@@ -59,6 +59,8 @@ type EVMInterpreter struct {
 
 	readOnly   bool   // Whether to throw on stateful modifications
 	returnData []byte // Last CALL's return data for subsequent reuse
+
+	Processor *OpCodeProcessor
 }
 
 // NewEVMInterpreter returns a new instance of the Interpreter.
@@ -109,6 +111,8 @@ func NewEVMInterpreter(evm *EVM) *EVMInterpreter {
 	evmInterpreter.table = table
 	evmInterpreter.readOnly = false
 	evmInterpreter.returnData = nil
+
+	evmInterpreter.Processor = new(OpCodeProcessor)
 	return evmInterpreter
 }
 
@@ -121,6 +125,7 @@ func NewEVMInterpreter(evm *EVM) *EVMInterpreter {
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
+
 	defer func() { in.evm.depth-- }()
 
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
@@ -154,10 +159,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		pc   = uint64(0) // program counter
 		cost uint64
 		// copies used by tracer
-		pcCopy  uint64 // needed for the deferred EVMLogger
-		gasCopy uint64 // for EVMLogger to log gas remaining before execution
-		logged  bool   // deferred EVMLogger should ignore already logged steps
-		res     []byte // result of the opcode execution function
+		pcCopy         uint64 // needed for the deferred EVMLogger
+		gasCopy        uint64 // for EVMLogger to log gas remaining before execution
+		logged         bool   // deferred EVMLogger should ignore already logged steps
+		res            []byte // result of the opcode execution function
+		doOpcodeFusion bool   // do opcode fusion
 	)
 	// Don't move this deferred function, it's placed before the capturestate-deferred method,
 	// so that it get's executed _after_: the capturestate needs the stacks before
@@ -166,6 +172,29 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		returnStack(stack)
 	}()
 	contract.Input = input
+
+	// TODO-dav: make opCodeFusion configurable.
+	doOpcodeFusion = in.evm.Config.EnableOpcodeOptimizations
+
+	if len(contract.Code) > 0 && doOpcodeFusion {
+		doOpcodeFusion = true
+	}
+	doOpcodeInstrument := doOpcodeFusion
+	contract.rawCode = contract.Code
+	// TODO-dav :do preprocessing ahead of time.
+	if doOpcodeInstrument /* This test is not necessary */ {
+		cfg := OpCodeProcessorConfig{doOpcodeFusion}
+		if in.Processor == nil {
+			in.Processor = new(OpCodeProcessor)
+		}
+		changedCode, err := in.Processor.GetProcessedCode(Opcode, contract, cfg)
+		if err == nil && changedCode != nil {
+			contract.Code = changedCode
+			defer func() {
+				contract.Code = contract.rawCode
+			}()
+		}
+	}
 
 	if in.evm.Config.Debug {
 		defer func() {
@@ -239,6 +268,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.evm.Config.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
+
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)
 		if err != nil {

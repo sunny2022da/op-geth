@@ -93,6 +93,9 @@ var Defaults = Config{
 	RPCEVMTimeout:           5 * time.Second,
 	GPO:                     FullNodeGPO,
 	RPCTxFeeCap:             1, // 1 ether
+	EnableOpcodeProfiling:   false,
+	EnableOpcodeParsing:     false,
+	EnableOpcodeOptimizing:  false,
 }
 
 func init() {
@@ -221,6 +224,10 @@ type Config struct {
 	RollupHistoricalRPC        string
 	RollupHistoricalRPCTimeout time.Duration
 	RollupDisableTxPoolGossip  bool
+
+	EnableOpcodeOptimizing bool
+	EnableOpcodeProfiling  bool
+	EnableOpcodeParsing    bool
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
