@@ -19,6 +19,7 @@ package js
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ethereum/go-ethereum/core/vm/compiler"
 	"math/big"
 	"strings"
 	"testing"
@@ -79,6 +80,8 @@ func runTraceWithOption(tracer tracers.Tracer, vmctx *vmContext, chaincfg *param
 	contract.Code = []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, 0x0}
 	if contractCode != nil {
 		contract.Code = contractCode
+		// reset the code also require flush code cache.
+		compiler.GetOpCodeCacheInstance().RemoveCachedCode(contract.Address())
 	}
 
 	tracer.CaptureTxStart(gasLimit)

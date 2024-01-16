@@ -35,7 +35,7 @@ type insertStats struct {
 
 // statsReportLimit is the time limit during import and export after which we
 // always print out progress. This avoids the user wondering what's going on.
-const statsReportLimit = 8 * time.Second
+const statsReportLimit = 1 * time.Nanosecond
 
 // report prints statistics if some number of blocks have been processed
 // or more than a few seconds have passed since the last message.

@@ -8,7 +8,7 @@ import (
 )
 
 // CodeCacheGCThreshold TODO: make codecache threshold configurable.
-const CodeCacheGCThreshold = 512 * 1024 * 1024 /* 512MB */
+const CodeCacheGCThreshold = 1024 * 1024 * 1024 /* 1 GB */
 // CodeCacheGCSoftLimit is used to trigger GC for memory control.
 // upper limit of bytecodes of smart contract is ~25MB.
 const CodeCacheGCSoftLimit = 2 * 1024 * 1024 /* 2MB */
@@ -29,14 +29,32 @@ type OpCodeCache struct {
 	shlAndSubMapMutex sync.RWMutex
 }
 
-func (c *OpCodeCache) GetCachedCode(address common.Address, hash common.Hash) OptCode {
+func (c *OpCodeCache) GetCachedCode(address common.Address, codeHash common.Hash) OptCode {
 	c.codeCacheMutex.RLock()
-	processedCode := c.opcodesCache[address][hash]
+
+	processedCode, ok := c.opcodesCache[address][codeHash]
+	if !ok {
+		processedCode = nil
+	}
 	c.codeCacheMutex.RUnlock()
 	return processedCode
 }
 
-func (c *OpCodeCache) UpdateCodeCache(address common.Address, hash common.Hash, code OptCode) error {
+func (c *OpCodeCache) RemoveCachedCode(address common.Address) {
+	c.codeCacheMutex.Lock()
+	if c.opcodesCache == nil || c.codeCacheSize == 0 {
+		c.codeCacheMutex.Unlock()
+		return
+	}
+	_, ok := c.opcodesCache[address]
+	if ok {
+		delete(c.opcodesCache, address)
+	}
+	c.codeCacheMutex.Unlock()
+}
+
+func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, codeHash common.Hash) error {
+
 	c.codeCacheMutex.Lock()
 
 	if c.codeCacheSize+CodeCacheGCSoftLimit > CodeCacheGCThreshold {
@@ -49,16 +67,11 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, hash common.Hash, 
 		}
 		c.codeCacheSize = 0
 	}
-
-	if len(c.opcodesCache[address]) > 5 {
-		delete(c.opcodesCache, address)
-	}
 	if c.opcodesCache[address] == nil {
 		c.opcodesCache[address] = map[common.Hash]OptCode{}
 	}
-	c.opcodesCache[address][hash] = code
+	c.opcodesCache[address][codeHash] = code
 	c.codeCacheSize += uint64(len(code))
-
 	c.codeCacheMutex.Unlock()
 	return nil
 }

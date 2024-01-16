@@ -1,13 +1,11 @@
 package vm
 
 import (
-	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm/compiler"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
-	"os"
 )
 
 type CodeType uint8
@@ -17,70 +15,70 @@ const (
 	/* CompiledCode */
 )
 
-// OpCodeProcessor is thread local
-type OpCodeProcessor struct {
-}
-
 type OpCodeProcessorConfig struct {
 	DoOpcodeFusion bool
 }
 
-func (p *OpCodeProcessor) GetProcessedCode(kind int, contract *Contract, config OpCodeProcessorConfig) (compiler.OptCode, error) {
-	if kind != Opcode {
-		fmt.Fprintf(os.Stderr, "Only support optimizing of the opcode")
-		return nil, ErrFailPreprocessing
-	}
-
-	/* TODO: create a func like DoOpcodeOptimization */
-	if !config.DoOpcodeFusion {
-		return nil, nil
-	}
-
+func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common.Hash, config OpCodeProcessorConfig) (compiler.OptCode, bool, error) {
 	/* Try load from cache */
-	codeHash := contract.CodeHash
-	if contract.CodeHash == (common.Hash{}) {
-		codeHash = crypto.Keccak256Hash(contract.Code)
-	}
-
 	codeCache := compiler.GetOpCodeCacheInstance()
 	// TODO-dav:The lock on the whole codecache is not optimal, consider use smaller granularity.
-	processedCode := codeCache.GetCachedCode(contract.Address(), codeHash)
-
+	if codeHash == (common.Hash{}) {
+		log.Warn("CodeFusion CodeCache - cal hash for code", "contract", address.String())
+		codeHash = crypto.Keccak256Hash(code)
+	}
+	processedCode := codeCache.GetCachedCode(address, codeHash)
+	hit := false
 	if processedCode == nil || len(processedCode) == 0 {
 		var err error
-		processedCode, err = p.processByteCodes(contract, config)
+		processedCode, err = processByteCodes(code, config)
 		if err != nil {
-			log.Warn("Can not generate optimized code: %s\n", err.Error())
-			return nil, err
+			log.Error("Can not generate optimized code: %s\n", err.Error())
+			return nil, false, err
 		}
 		//TODO - dav: - make following in one func.
 		//todo - dav: if cache number > 5. clear. maybe instead reinstall at setcallcode().
-		err = codeCache.UpdateCodeCache(contract.Address(), codeHash, processedCode)
+		err = codeCache.UpdateCodeCache(address, processedCode, codeHash)
 		if err != nil {
-			log.Warn("Not update code cache", "err", err)
+			log.Error("Not update code cache", "err", err)
 		}
+		hit = false
+	} else {
+		hit = true
 	}
-	return processedCode, nil
+	return processedCode, hit, nil
 }
 
-func (p *OpCodeProcessor) processByteCodes(contract *Contract, config OpCodeProcessorConfig) (compiler.OptCode, error) {
-	return p.doOpcodesProcess(contract, config)
+func GetProcessedCode(kind int, contract *Contract, config OpCodeProcessorConfig) (compiler.OptCode, bool, error) {
+	if kind != Opcode {
+		log.Error("Only support optimizing of the opcode")
+		return nil, false, ErrFailPreprocessing
+	}
+
+	if !config.DoOpcodeFusion {
+		return nil, false, nil
+	}
+	return GenOrLoadOptimizedCode(contract.Address(), contract.Code, contract.CodeHash, config)
 }
 
-func (p *OpCodeProcessor) doOpcodesProcess(contract *Contract, config OpCodeProcessorConfig) (compiler.OptCode, error) {
+func processByteCodes(code []byte, config OpCodeProcessorConfig) (compiler.OptCode, error) {
+	return doOpcodesProcess(code, config)
+}
+
+func doOpcodesProcess(code []byte, config OpCodeProcessorConfig) (compiler.OptCode, error) {
 	if !config.DoOpcodeFusion {
 		return nil, ErrFailPreprocessing
 	}
-	code, err := p.doCodeFusion(contract)
+	code, err := doCodeFusion(code)
 	if err != nil {
 		return nil, ErrFailPreprocessing
 	}
 	return code, nil
 }
 
-func (p *OpCodeProcessor) doCodeFusion(contract *Contract) ([]byte, error) {
-	fusedCode := make([]byte, len(contract.Code))
-	length := copy(fusedCode, contract.Code)
+func doCodeFusion(code []byte) ([]byte, error) {
+	fusedCode := make([]byte, len(code))
+	length := copy(fusedCode, code)
 	skipToNext := false
 	for i := 0; i < length; i++ {
 		cur := i

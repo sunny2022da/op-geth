@@ -1199,6 +1199,8 @@ github.com/prysmaticlabs/gohashtree v0.0.3-alpha h1:1EVinCWdb3Lorq7xn8DYQHf48nCc
 github.com/prysmaticlabs/gohashtree v0.0.3-alpha/go.mod h1:4pWaT30XoEx1j8KNJf3TV+E3mQkaufn7mf+jRNb/Fuk=
 github.com/prysmaticlabs/prombbolt v0.0.0-20210126082820-9b7adba6db7c/go.mod h1:ZRws458tYHS/Zs936OQ6oCrL+Ict5O4Xpwve1UQ6C9M=
 github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20211014160335-757fae4f38c6/go.mod h1:ZVEbRdnMkGhp/pu35zq4SXxtvUwWK0J1MATtekZpH2Y=
+github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294 h1:q9wE0ZZRdTUAAeyFP/w0SwBEnCqlVy2+on6X2/e+eAU=
+github.com/prysmaticlabs/protoc-gen-go-cast v0.0.0-20230228205207-28762a7b9294/go.mod h1:ZVEbRdnMkGhp/pu35zq4SXxtvUwWK0J1MATtekZpH2Y=
 github.com/prysmaticlabs/prysm v0.0.0-20220124113610-e26cde5e091b h1:XULhE6PdzCYSe5OEVFhuixNqL3mYVOq/3M+SUGnKr1Y=
 github.com/prysmaticlabs/prysm v0.0.0-20220124113610-e26cde5e091b/go.mod h1:bFzDfaj4xtisRey9RPkMJOhOJVwmtH3FChV7NPKV1Nk=
 github.com/prysmaticlabs/prysm/v4 v4.0.8 h1:F6Rt5gpaxbW50aP63jMmSXE16JW42HaEzUT55L9laaM=
@@ -1338,8 +1340,6 @@ github.com/templexxx/cpufeat v0.0.0-20180724012125-cef66df7f161/go.mod h1:wM7WEv
 github.com/templexxx/xor v0.0.0-20191217153810-f85b25db303b/go.mod h1:5XA7W9S6mni3h5uvOC75dA3m9CCCaS83lltmc0ukdi4=
 github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e h1:cR8/SYRgyQCt5cNCMniB/ZScMkhI9nk8U5C7SbISXjo=
 github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e/go.mod h1:Tu4lItkATkonrYuvtVjG0/rhy15qrNGNTjPdaphtZ/8=
-github.com/timandy/routine v1.1.3 h1:lK7ix0Oyprtuw301bNle7WZw9V8eY680mjT9r5rmBLA=
-github.com/timandy/routine v1.1.3/go.mod h1:XWkchlwnVxH+yRwA/yxSuyzxqiaNuBUcFUHDglX56SY=
 github.com/tinylib/msgp v1.0.2/go.mod h1:+d+yLhGm8mzTaHzB+wgMYrodPfmZrzkirds8fDWklFE=
 github.com/tjfoc/gmsm v1.3.0/go.mod h1:HaUcFuY0auTiaHB9MHFGCPx5IaLhTUd2atbCFBQXn9w=
 github.com/tklauser/go-sysconf v0.3.5/go.mod h1:MkWzOF4RMCshBAMXuhXJs64Rte09mITnppBXY/rYEFI=

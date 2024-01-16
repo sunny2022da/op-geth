@@ -495,6 +495,14 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 		createDataGas := uint64(len(ret)) * params.CreateDataGas
 		if contract.UseGas(createDataGas) {
 			evm.StateDB.SetCode(address, ret)
+			// register it in code cache.
+			if evm.Config.EnableOpcodeOptimizations {
+				hash := evm.StateDB.GetCodeHash(address)
+				if hash == (common.Hash{}) {
+					hash = crypto.Keccak256Hash(ret)
+				}
+				GenOrLoadOptimizedCode(address, ret, hash, OpCodeProcessorConfig{true})
+			}
 		} else {
 			err = ErrCodeStoreOutOfGas
 		}

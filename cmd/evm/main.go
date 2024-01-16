@@ -125,6 +125,11 @@ var (
 		Value: true,
 		Usage: "enable return data output",
 	}
+	VMOpcodeOptimizeFlag = &cli.BoolFlag{
+		Name:  "vm.opcode.optimize",
+		Usage: "enable opcode optimization",
+		Value: true,
+	}
 )
 
 var stateTransitionCommand = &cli.Command{

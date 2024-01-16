@@ -59,8 +59,6 @@ type EVMInterpreter struct {
 
 	readOnly   bool   // Whether to throw on stateful modifications
 	returnData []byte // Last CALL's return data for subsequent reuse
-
-	Processor *OpCodeProcessor
 }
 
 // NewEVMInterpreter returns a new instance of the Interpreter.
@@ -111,8 +109,6 @@ func NewEVMInterpreter(evm *EVM) *EVMInterpreter {
 	evmInterpreter.table = table
 	evmInterpreter.readOnly = false
 	evmInterpreter.returnData = nil
-
-	evmInterpreter.Processor = new(OpCodeProcessor)
 	return evmInterpreter
 }
 
@@ -125,9 +121,7 @@ func NewEVMInterpreter(evm *EVM) *EVMInterpreter {
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
-
 	defer func() { in.evm.depth-- }()
-
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
 	if readOnly && !in.readOnly {
@@ -173,21 +167,21 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	}()
 	contract.Input = input
 
-	// TODO-dav: make opCodeFusion configurable.
 	doOpcodeFusion = in.evm.Config.EnableOpcodeOptimizations
 
 	if len(contract.Code) > 0 && doOpcodeFusion {
 		doOpcodeFusion = true
 	}
 	doOpcodeInstrument := doOpcodeFusion
-	contract.rawCode = contract.Code
+
 	// TODO-dav :do preprocessing ahead of time.
 	if doOpcodeInstrument /* This test is not necessary */ {
+		contract.rawCode = contract.Code
+		//instrumentStart := mclock.Now()
+
 		cfg := OpCodeProcessorConfig{doOpcodeFusion}
-		if in.Processor == nil {
-			in.Processor = new(OpCodeProcessor)
-		}
-		changedCode, err := in.Processor.GetProcessedCode(Opcode, contract, cfg)
+
+		changedCode, _, err := GetProcessedCode(Opcode, contract, cfg)
 		if err == nil && changedCode != nil {
 			contract.Code = changedCode
 			defer func() {
@@ -207,6 +201,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			}
 		}()
 	}
+
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
