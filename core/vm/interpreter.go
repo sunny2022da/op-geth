@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"github.com/ethereum/go-ethereum/common/mclock"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -122,7 +123,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
 	defer func() { in.evm.depth-- }()
-
+	begin := mclock.Now()
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
 	if readOnly && !in.readOnly {
@@ -250,6 +251,8 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	if err == errStopToken {
 		err = nil // clear stop token error
 	}
+	end := mclock.Now() - begin
+	log.Warn("CodeFusion: interpreter run", "duration", common.PrettyDuration(end))
 
 	return res, err
 }
