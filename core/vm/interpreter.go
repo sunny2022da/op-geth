@@ -179,11 +179,14 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			}
 		}()
 	}
+	interpStart := mclock.Now()
+	var gasDuration mclock.AbsTime = 0
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
 	// parent context.
 	for {
+		loopStart := mclock.Now()
 		if in.evm.Config.Debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
@@ -240,6 +243,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.evm.Config.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
+		gasDuration += mclock.Now() - loopStart
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)
 		if err != nil {
@@ -251,8 +255,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	if err == errStopToken {
 		err = nil // clear stop token error
 	}
-	end := mclock.Now() - begin
-	log.Warn("CodeFusion: interpreter run", "duration", common.PrettyDuration(end))
 
+	now := mclock.Now()
+	execEnd := now - interpStart
+	end := now - begin
+	log.Warn("CodeFusion: interpreter run", "total", common.PrettyDuration(end), "in loop", common.PrettyDuration(execEnd), "gasCal", common.PrettyDuration(gasDuration))
 	return res, err
 }
