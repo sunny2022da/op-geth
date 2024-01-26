@@ -259,6 +259,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	now := mclock.Now()
 	execEnd := now - interpStart
 	end := now - begin
-	log.Warn("CodeFusion: interpreter run", "total", common.PrettyDuration(end), "in loop", common.PrettyDuration(execEnd), "gasCal", common.PrettyDuration(gasDuration))
+	log.Warn("CodeFusion: interpreter exit", "contract", contract.Address().String(), "depth", in.evm.depth, "total", common.PrettyDuration(end), "exec", common.PrettyDuration(execEnd)-common.PrettyDuration(gasDuration), "gasCal", common.PrettyDuration(gasDuration))
 	return res, err
 }
