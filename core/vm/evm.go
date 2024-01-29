@@ -17,6 +17,8 @@
 package vm
 
 import (
+	"github.com/ethereum/go-ethereum/core/vm/compiler"
+	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -239,7 +241,22 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	} else {
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
-		code := evm.StateDB.GetCode(addr)
+		var code []byte
+		optimized := false
+		codeHash := evm.StateDB.GetCodeHash(addr)
+
+		// try get from code cache first
+		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+			codeCache := compiler.GetOpCodeCacheInstance()
+			code = codeCache.GetCachedCode(addr, codeHash)
+			if len(code) != 0 {
+				optimized = true
+			}
+		}
+		// cache missed or no optimization
+		if len(code) == 0 {
+			code = evm.StateDB.GetCode(addr)
+		}
 		if len(code) == 0 {
 			ret, err = nil, nil // gas is unchanged
 		} else {
@@ -247,7 +264,23 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// If the account has no code, we can abort here
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
-			contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
+			// since code is got from cache or db, codehash can not be nil.
+			if !optimized {
+				// Try optimize
+				if evm.Config.EnableOpcodeOptimizations {
+					rawCode := code
+					code, _, _ = GenOrLoadOptimizedCode(addrCopy, code, codeHash)
+					if len(code) == 0 {
+						code = rawCode
+					} else {
+						contract.RawCode = rawCode
+						optimized = true
+					}
+				}
+			}
+			contract.SetCallCode(&addrCopy, codeHash, code)
+			contract.optimized = optimized
+
 			ret, err = evm.interpreter.Run(contract, input, false)
 			gas = contract.Gas
 		}
@@ -304,7 +337,37 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(caller.Address()), value, gas)
-		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
+
+		codeHash := evm.StateDB.GetCodeHash(addrCopy)
+		var code []byte
+		var rawCode []byte
+		optimized := false
+		// try get from cache
+		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+			codeCache := compiler.GetOpCodeCacheInstance()
+			code = codeCache.GetCachedCode(addrCopy, codeHash)
+			if len(code) == 0 {
+				rawCode = evm.StateDB.GetCode(addrCopy)
+				code, _, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
+				if len(code) != 0 {
+					optimized = true
+					contract.RawCode = rawCode
+				} else {
+					optimized = false
+				}
+			} else {
+				optimized = true
+			}
+		}
+
+		if len(code) == 0 {
+			if len(rawCode) == 0 {
+				rawCode = evm.StateDB.GetCode(addrCopy)
+			}
+			code = rawCode
+		}
+		contract.optimized = optimized
+		contract.SetCallCode(&addrCopy, codeHash, code)
 		ret, err = evm.interpreter.Run(contract, input, false)
 		gas = contract.Gas
 	}
@@ -348,7 +411,36 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		addrCopy := addr
 		// Initialise a new contract and make initialise the delegate values
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
-		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
+
+		codeHash := evm.StateDB.GetCodeHash(addrCopy)
+		var code []byte
+		var rawCode []byte
+		optimized := false
+		// try get from cache
+		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+			codeCache := compiler.GetOpCodeCacheInstance()
+			code = codeCache.GetCachedCode(addrCopy, codeHash)
+			if len(code) == 0 {
+				rawCode = evm.StateDB.GetCode(addrCopy)
+				code, _, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
+				if len(code) != 0 {
+					optimized = true
+					contract.RawCode = rawCode
+				}
+			} else {
+				optimized = true
+			}
+		}
+
+		if len(code) == 0 {
+			if len(rawCode) == 0 {
+				rawCode = evm.StateDB.GetCode(addrCopy)
+			}
+			code = rawCode
+		}
+		contract.optimized = optimized
+
+		contract.SetCallCode(&addrCopy, codeHash, code)
 		ret, err = evm.interpreter.Run(contract, input, false)
 		gas = contract.Gas
 	}
@@ -401,7 +493,38 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
-		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
+
+		codeHash := evm.StateDB.GetCodeHash(addrCopy)
+		var code []byte
+		var rawCode []byte
+		optimized := false
+		// try get from cache
+		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+			codeCache := compiler.GetOpCodeCacheInstance()
+			code = codeCache.GetCachedCode(addrCopy, codeHash)
+			if len(code) == 0 {
+				rawCode = evm.StateDB.GetCode(addrCopy)
+				code, _, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
+				if len(code) != 0 {
+					optimized = true
+					contract.RawCode = rawCode
+				} else {
+					optimized = false
+				}
+			} else {
+				optimized = true
+			}
+		}
+
+		if len(code) == 0 {
+			if len(rawCode) == 0 {
+				rawCode = evm.StateDB.GetCode(addrCopy)
+			}
+			code = rawCode
+		}
+		contract.optimized = optimized
+
+		contract.SetCallCode(&addrCopy, codeHash, code)
 		// When an error was returned by the EVM or when setting the creation code
 		// above we revert to the snapshot and consume any gas remaining. Additionally
 		// when we're in Homestead this also counts for code storage gas errors.
@@ -497,11 +620,9 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 			evm.StateDB.SetCode(address, ret)
 			// register it in code cache.
 			if evm.Config.EnableOpcodeOptimizations {
-				hash := evm.StateDB.GetCodeHash(address)
-				if hash == (common.Hash{}) {
-					hash = crypto.Keccak256Hash(ret)
-				}
-				GenOrLoadOptimizedCode(address, ret, hash, OpCodeProcessorConfig{true})
+				hash := crypto.Keccak256Hash(ret)
+				_, hit, _ := GenOrLoadOptimizedCode(address, ret, hash)
+				log.Warn("CodeFusion: interpreter optimize at create", "contract", address.String(), "hit", hit)
 			}
 		} else {
 			err = ErrCodeStoreOutOfGas

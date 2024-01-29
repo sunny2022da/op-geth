@@ -19,7 +19,7 @@ type OpCodeProcessorConfig struct {
 	DoOpcodeFusion bool
 }
 
-func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common.Hash, config OpCodeProcessorConfig) (compiler.OptCode, bool, error) {
+func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common.Hash) (compiler.OptCode, bool, error) {
 	/* Try load from cache */
 	codeCache := compiler.GetOpCodeCacheInstance()
 	// TODO-dav:The lock on the whole codecache is not optimal, consider use smaller granularity.
@@ -31,7 +31,7 @@ func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common
 	hit := false
 	if processedCode == nil || len(processedCode) == 0 {
 		var err error
-		processedCode, err = processByteCodes(code, config)
+		processedCode, err = processByteCodes(code)
 		if err != nil {
 			log.Error("Can not generate optimized code: %s\n", err.Error())
 			return nil, false, err
@@ -49,26 +49,20 @@ func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common
 	return processedCode, hit, nil
 }
 
-func GetProcessedCode(kind int, contract *Contract, config OpCodeProcessorConfig) (compiler.OptCode, bool, error) {
+func GetProcessedCode(kind int, contract *Contract) (compiler.OptCode, bool, error) {
 	if kind != Opcode {
 		log.Error("Only support optimizing of the opcode")
 		return nil, false, ErrFailPreprocessing
 	}
 
-	if !config.DoOpcodeFusion {
-		return nil, false, nil
-	}
-	return GenOrLoadOptimizedCode(contract.Address(), contract.Code, contract.CodeHash, config)
+	return GenOrLoadOptimizedCode(contract.Address(), contract.Code, contract.CodeHash)
 }
 
-func processByteCodes(code []byte, config OpCodeProcessorConfig) (compiler.OptCode, error) {
-	return doOpcodesProcess(code, config)
+func processByteCodes(code []byte) (compiler.OptCode, error) {
+	return doOpcodesProcess(code)
 }
 
-func doOpcodesProcess(code []byte, config OpCodeProcessorConfig) (compiler.OptCode, error) {
-	if !config.DoOpcodeFusion {
-		return nil, ErrFailPreprocessing
-	}
+func doOpcodesProcess(code []byte) (compiler.OptCode, error) {
 	code, err := doCodeFusion(code)
 	if err != nil {
 		return nil, ErrFailPreprocessing

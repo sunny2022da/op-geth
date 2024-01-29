@@ -18,6 +18,7 @@ package runtime
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/vm/compiler"
 	"math/big"
 	"os"
 	"strings"
@@ -986,7 +987,7 @@ func TestRuntimeJSTracerWithOpcodeOptimizer(t *testing.T) {
 				byte(vm.CREATE),
 				byte(vm.POP),
 			},
-			results: []string{`"1,1,952855,6,10"`, `"1,1,952855,6,0"`},
+			results: []string{`"1,1,952855,6,11"`, `"1,1,952855,6,0"`},
 		},
 		{
 			// CREATE2
@@ -1002,7 +1003,7 @@ func TestRuntimeJSTracerWithOpcodeOptimizer(t *testing.T) {
 				byte(vm.CREATE2),
 				byte(vm.POP),
 			},
-			results: []string{`"1,1,952846,6,10"`, `"1,1,952846,6,0"`},
+			results: []string{`"1,1,952846,6,11"`, `"1,1,952846,6,0"`},
 		},
 		{
 			// CALL
@@ -1100,6 +1101,7 @@ func TestRuntimeJSTracerWithOpcodeOptimizer(t *testing.T) {
 					Tracer:                    tracer,
 					EnableOpcodeOptimizations: true,
 				}})
+			compiler.GetOpCodeCacheInstance().RemoveCachedCode(main)
 			if err != nil {
 				t.Fatal("didn't expect error", err)
 			}

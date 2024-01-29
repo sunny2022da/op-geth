@@ -57,9 +57,10 @@ type Contract struct {
 	CodeAddr *common.Address
 	Input    []byte
 
-	Gas     uint64
-	value   *big.Int
-	rawCode []byte
+	Gas       uint64
+	value     *big.Int
+	RawCode   []byte
+	optimized bool
 }
 
 // NewContract returns a new contract environment for the execution of EVM.

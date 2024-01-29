@@ -80,8 +80,14 @@ func runTraceWithOption(tracer tracers.Tracer, vmctx *vmContext, chaincfg *param
 	contract.Code = []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, 0x0}
 	if contractCode != nil {
 		contract.Code = contractCode
+	}
+
+	if enableOpti {
 		// reset the code also require flush code cache.
 		compiler.GetOpCodeCacheInstance().RemoveCachedCode(contract.Address())
+		optimized, _, _ := vm.GenOrLoadOptimizedCode(contract.Address(), contract.Code, common.Hash{})
+		contract.RawCode = contract.Code
+		contract.Code = optimized
 	}
 
 	tracer.CaptureTxStart(gasLimit)

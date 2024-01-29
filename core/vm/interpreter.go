@@ -153,11 +153,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		pc   = uint64(0) // program counter
 		cost uint64
 		// copies used by tracer
-		pcCopy         uint64 // needed for the deferred EVMLogger
-		gasCopy        uint64 // for EVMLogger to log gas remaining before execution
-		logged         bool   // deferred EVMLogger should ignore already logged steps
-		res            []byte // result of the opcode execution function
-		doOpcodeFusion bool   // do opcode fusion
+		pcCopy  uint64 // needed for the deferred EVMLogger
+		gasCopy uint64 // for EVMLogger to log gas remaining before execution
+		logged  bool   // deferred EVMLogger should ignore already logged steps
+		res     []byte // result of the opcode execution function
 	)
 	// Don't move this deferred function, it's placed before the capturestate-deferred method,
 	// so that it get's executed _after_: the capturestate needs the stacks before
@@ -166,29 +165,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		returnStack(stack)
 	}()
 	contract.Input = input
-
-	doOpcodeFusion = in.evm.Config.EnableOpcodeOptimizations
-
-	if len(contract.Code) > 0 && doOpcodeFusion {
-		doOpcodeFusion = true
-	}
-	doOpcodeInstrument := doOpcodeFusion
-
-	// TODO-dav :do preprocessing ahead of time.
-	if doOpcodeInstrument /* This test is not necessary */ {
-		contract.rawCode = contract.Code
-		//instrumentStart := mclock.Now()
-
-		cfg := OpCodeProcessorConfig{doOpcodeFusion}
-
-		changedCode, _, err := GetProcessedCode(Opcode, contract, cfg)
-		if err == nil && changedCode != nil {
-			contract.Code = changedCode
-			defer func() {
-				contract.Code = contract.rawCode
-			}()
-		}
-	}
 
 	if in.evm.Config.Debug {
 		defer func() {
