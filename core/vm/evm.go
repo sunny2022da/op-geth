@@ -18,7 +18,6 @@ package vm
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm/compiler"
-	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -589,7 +588,8 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	// The contract is a scoped environment for this execution context only.
 	contract := NewContract(caller, AccountRef(address), value, gas)
 	contract.SetCodeOptionalHash(&address, codeAndHash)
-
+	// We don't optimize creation code as it run only once.
+	contract.optimized = false
 	if evm.Config.Debug {
 		if evm.depth == 0 {
 			evm.Config.Tracer.CaptureStart(evm, caller.Address(), address, true, codeAndHash.code, gas, value)
@@ -621,8 +621,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 			// register it in code cache.
 			if evm.Config.EnableOpcodeOptimizations {
 				hash := crypto.Keccak256Hash(ret)
-				_, hit, _ := GenOrLoadOptimizedCode(address, ret, hash)
-				log.Warn("CodeFusion: interpreter optimize at create", "contract", address.String(), "hit", hit)
+				GenOrLoadOptimizedCode(address, ret, hash)
 			}
 		} else {
 			err = ErrCodeStoreOutOfGas

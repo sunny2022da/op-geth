@@ -372,9 +372,10 @@ func opCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([
 
 	contractRawCode := scope.Contract.Code
 
-	if interpreter.evm.Config.EnableOpcodeOptimizations {
+	if interpreter.evm.Config.EnableOpcodeOptimizations && scope.Contract.optimized {
 		if scope.Contract.RawCode == nil || len(scope.Contract.RawCode) == 0 {
-			scope.Contract.RawCode = interpreter.evm.StateDB.GetCode(scope.Contract.Address())
+			// if we have optimization, get rawCode from DB.
+			scope.Contract.RawCode = interpreter.evm.StateDB.GetCode(*scope.Contract.CodeAddr)
 		}
 		contractRawCode = scope.Contract.RawCode
 	}
