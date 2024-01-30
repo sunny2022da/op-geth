@@ -29,7 +29,7 @@ type OpCodeCache struct {
 	shlAndSubMapMutex sync.RWMutex
 }
 
-func (c *OpCodeCache) GetCachedCode(address common.Address, ) OptCode {
+func (c *OpCodeCache) GetCachedCode(address common.Address) OptCode {
 	c.codeCacheMutex.RLock()
 
 	processedCode, ok := c.opcodesCache[address]
