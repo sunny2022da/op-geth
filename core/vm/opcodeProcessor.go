@@ -3,7 +3,6 @@ package vm
 import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm/compiler"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 )
@@ -19,15 +18,10 @@ type OpCodeProcessorConfig struct {
 	DoOpcodeFusion bool
 }
 
-func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common.Hash) (compiler.OptCode, bool, error) {
+func GenOrLoadOptimizedCode(address common.Address, code []byte) (compiler.OptCode, bool, error) {
 	/* Try load from cache */
 	codeCache := compiler.GetOpCodeCacheInstance()
-	// TODO-dav:The lock on the whole codecache is not optimal, consider use smaller granularity.
-	if codeHash == (common.Hash{}) {
-		log.Warn("CodeFusion CodeCache - cal hash for code", "contract", address.String())
-		codeHash = crypto.Keccak256Hash(code)
-	}
-	processedCode := codeCache.GetCachedCode(address, codeHash)
+	processedCode := codeCache.GetCachedCode(address)
 	hit := false
 	if processedCode == nil || len(processedCode) == 0 {
 		var err error
@@ -38,7 +32,7 @@ func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common
 		}
 		//TODO - dav: - make following in one func.
 		//todo - dav: if cache number > 5. clear. maybe instead reinstall at setcallcode().
-		err = codeCache.UpdateCodeCache(address, processedCode, codeHash)
+		err = codeCache.UpdateCodeCache(address, processedCode)
 		if err != nil {
 			log.Error("Not update code cache", "err", err)
 		}
@@ -55,7 +49,7 @@ func GetProcessedCode(kind int, contract *Contract) (compiler.OptCode, bool, err
 		return nil, false, ErrFailPreprocessing
 	}
 
-	return GenOrLoadOptimizedCode(contract.Address(), contract.Code, contract.CodeHash)
+	return GenOrLoadOptimizedCode(contract.Address(), contract.Code)
 }
 
 func processByteCodes(code []byte) (compiler.OptCode, error) {
