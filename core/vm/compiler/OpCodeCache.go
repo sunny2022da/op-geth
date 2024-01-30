@@ -21,7 +21,7 @@ type ThreeU8Operands struct {
 }
 
 type OpCodeCache struct {
-	opcodesCache   map[common.Address]OptCode
+	opcodesCache   map[common.Address]map[common.Hash]OptCode
 	codeCacheMutex sync.RWMutex
 	codeCacheSize  uint64
 	/* map of shl and sub arguments and results*/
@@ -29,10 +29,11 @@ type OpCodeCache struct {
 	shlAndSubMapMutex sync.RWMutex
 }
 
-func (c *OpCodeCache) GetCachedCode(address common.Address) OptCode {
+func (c *OpCodeCache) GetCachedCode(address common.Address, codeHash common.Hash) OptCode {
+
 	c.codeCacheMutex.RLock()
 
-	processedCode, ok := c.opcodesCache[address]
+	processedCode, ok := c.opcodesCache[address][codeHash]
 	if !ok {
 		processedCode = nil
 	}
@@ -53,7 +54,7 @@ func (c *OpCodeCache) RemoveCachedCode(address common.Address) {
 	c.codeCacheMutex.Unlock()
 }
 
-func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) error {
+func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, codeHash common.Hash) error {
 
 	c.codeCacheMutex.Lock()
 
@@ -68,9 +69,9 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) erro
 		c.codeCacheSize = 0
 	}
 	if c.opcodesCache[address] == nil {
-		c.opcodesCache[address] = OptCode{}
+		c.opcodesCache[address] = map[common.Hash]OptCode{}
 	}
-	c.opcodesCache[address] = code
+	c.opcodesCache[address][codeHash] = code
 	c.codeCacheSize += uint64(len(code))
 	c.codeCacheMutex.Unlock()
 	return nil
@@ -99,7 +100,7 @@ var opcodeCache *OpCodeCache
 
 func newOpCodeCache() *OpCodeCache {
 	codeCache := new(OpCodeCache)
-	codeCache.opcodesCache = map[common.Address]OptCode{}
+	codeCache.opcodesCache = map[common.Address]map[common.Hash]OptCode{}
 	codeCache.shlAndSubMap = map[ThreeU8Operands]*uint256.Int{}
 	codeCache.codeCacheMutex = sync.RWMutex{}
 	opcodeCache = codeCache
