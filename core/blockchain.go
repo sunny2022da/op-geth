@@ -20,6 +20,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"io"
 	"math/big"
 	"runtime"
@@ -1824,6 +1825,13 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		interruptCh := make(chan struct{})
 		pstart := time.Now()
 
+		tracer := logger.NewStructLogger(&logger.Config{
+			Debug: false,
+			//DisableStorage: true,
+			//EnableMemory: false,
+			//EnableReturnData: false,
+		})
+
 		// skip block process if we already have the state, receipts and logs from mining work
 		if !(receiptExist && logExist && stateExist) {
 			// Retrieve the parent block and it's state to execute on top
@@ -1854,6 +1862,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 					}(time.Now(), followup, throwaway)
 				}
 			}
+			bc.vmConfig.Tracer = tracer
+			bc.vmConfig.Debug = true
 			// Process block using the parent state as reference point
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
 			if err != nil {
@@ -1863,6 +1873,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
+		steps := len(tracer.StructLogs())
+		tracer.Reset()
 		ptime := time.Since(pstart)
 		vstart := time.Now()
 		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
@@ -1927,7 +1939,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		stats.usedGas += usedGas
 
 		dirty, _ := bc.triedb.Size()
-		stats.report(chain, it.index, dirty, setHead, ptime)
+		stats.report(chain, it.index, dirty, setHead, ptime, steps)
 
 		if !setHead {
 			// After merge we expect few side chains. Simply count
