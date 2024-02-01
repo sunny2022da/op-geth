@@ -69,7 +69,7 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, code
 		c.codeCacheSize = 0
 	}
 	if c.opcodesCache[address] == nil {
-		c.opcodesCache[address] = map[common.Hash]OptCode{}
+		c.opcodesCache[address] = make(map[common.Hash]OptCode, 3)
 	}
 	c.opcodesCache[address][codeHash] = code
 	c.codeCacheSize += uint64(len(code))
@@ -100,8 +100,8 @@ var opcodeCache *OpCodeCache
 
 func newOpCodeCache() *OpCodeCache {
 	codeCache := new(OpCodeCache)
-	codeCache.opcodesCache = map[common.Address]map[common.Hash]OptCode{}
-	codeCache.shlAndSubMap = map[ThreeU8Operands]*uint256.Int{}
+	codeCache.opcodesCache = make(map[common.Address]map[common.Hash]OptCode, CodeCacheGCThreshold>>10)
+	codeCache.shlAndSubMap = make(map[ThreeU8Operands]*uint256.Int, 4096)
 	codeCache.codeCacheMutex = sync.RWMutex{}
 	opcodeCache = codeCache
 	return codeCache
