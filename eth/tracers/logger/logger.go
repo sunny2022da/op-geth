@@ -169,13 +169,20 @@ func (l *StructLogger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, s
 	// Copy a snapshot of the current stack state to a new buffer
 	var stck []uint256.Int
 	if !l.cfg.DisableStack {
-		stck = make([]uint256.Int, len(stack.Data()))
-		for i, item := range stack.Data() {
-			stck[i] = item
+		/*
+			stck = make([]uint256.Int, len(stack.Data()))
+			for i, item := range stack.Data() {
+				stck[i] = item
+			}
+		*/
+		stck = make([]uint256.Int, stack.Len())
+		for i := 0; i < stack.Len(); i++ {
+			stck[i] = *stack.Back(i)
 		}
 	}
-	stackData := stack.Data()
-	stackLen := len(stackData)
+	//stackData := stack.Data()
+	//stackLen := len(stackData)
+	stackLen := stack.Len()
 	// Copy a snapshot of the current storage to a new container
 	var storage Storage
 	if !l.cfg.DisableStorage && (op == vm.SLOAD || op == vm.SSTORE) {
@@ -187,7 +194,7 @@ func (l *StructLogger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, s
 		// capture SLOAD opcodes and record the read entry in the local storage
 		if op == vm.SLOAD && stackLen >= 1 {
 			var (
-				address = common.Hash(stackData[stackLen-1].Bytes32())
+				address = common.Hash(stack.Back(0).Bytes32())
 				value   = l.env.StateDB.GetState(contract.Address(), address)
 			)
 			l.storage[contract.Address()][address] = value
@@ -195,8 +202,8 @@ func (l *StructLogger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, s
 		} else if op == vm.SSTORE && stackLen >= 2 {
 			// capture SSTORE opcodes and record the written entry in the local storage.
 			var (
-				value   = common.Hash(stackData[stackLen-2].Bytes32())
-				address = common.Hash(stackData[stackLen-1].Bytes32())
+				value   = common.Hash(stack.Back(1).Bytes32())
+				address = common.Hash(stack.Back(0).Bytes32())
 			)
 			l.storage[contract.Address()][address] = value
 			storage = l.storage[contract.Address()].Copy()
@@ -367,7 +374,13 @@ func (t *mdLogger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope
 	if !t.cfg.DisableStack {
 		// format stack
 		var a []string
-		for _, elem := range stack.Data() {
+		/*
+			for _, elem := range stack.Data() {
+				a = append(a, elem.Hex())
+			}
+		*/
+		for i := 0; i < stack.Len(); i++ {
+			elem := stack.Back(i)
 			a = append(a, elem.Hex())
 		}
 		b := fmt.Sprintf("[%v]", strings.Join(a, ","))

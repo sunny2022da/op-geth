@@ -18,6 +18,7 @@ package logger
 
 import (
 	"encoding/json"
+	"github.com/holiman/uint256"
 	"io"
 	"math/big"
 
@@ -70,7 +71,13 @@ func (l *JSONLogger) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sco
 		log.Memory = memory.Data()
 	}
 	if !l.cfg.DisableStack {
-		log.Stack = stack.Data()
+		var stck []uint256.Int
+		stck = make([]uint256.Int, stack.Len())
+		for i := 0; i < stack.Len(); i++ {
+			stck[i] = *stack.Back(i)
+		}
+		log.Stack = stck
+		// log.Stack = stack.Data()
 	}
 	if l.cfg.EnableReturnData {
 		log.ReturnData = rData
