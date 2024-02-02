@@ -1761,6 +1761,12 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			activeState.StopPrefetcher()
 		}
 	}()
+	tracer := logger.NewStructLogger(&logger.Config{
+		Debug: false,
+		//DisableStorage: true,
+		//EnableMemory: false,
+		//EnableReturnData: false,
+	})
 
 	for ; block != nil && err == nil || errors.Is(err, ErrKnownBlock); block, err = it.next() {
 		// If the chain is terminating, stop processing blocks
@@ -1825,12 +1831,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		interruptCh := make(chan struct{})
 		pstart := time.Now()
 
-		tracer := logger.NewStructLogger(&logger.Config{
-			Debug: false,
-			//DisableStorage: true,
-			//EnableMemory: false,
-			//EnableReturnData: false,
-		})
+		steps := 0
 
 		// skip block process if we already have the state, receipts and logs from mining work
 		if !(receiptExist && logExist && stateExist) {
@@ -1850,22 +1851,33 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 
 			// If we have a followup block, run that against the current state to pre-cache
 			// transactions and probabilistically some of the account/storage trie nodes.
-
+			oldTracer := bc.vmConfig.Tracer
 			if !bc.cacheConfig.TrieCleanNoPrefetch {
 				if followup, err := it.peek(); followup != nil && err == nil {
 					throwaway, _ := state.New(parent.Root, bc.stateCache, bc.snaps)
+					vmc := new(vm.Config)
+					vmc.Debug = false
+					vmc.Tracer = oldTracer
+					vmc.NoBaseFee = bc.vmConfig.NoBaseFee
+					vmc.EnablePreimageRecording = bc.vmConfig.EnablePreimageRecording
+					vmc.ExtraEips = bc.vmConfig.ExtraEips
+					vmc.EnableOpcodeOptimizations = bc.vmConfig.EnableOpcodeOptimizations
 
-					go func(start time.Time, followup *types.Block, throwaway *state.StateDB) {
-						bc.prefetcher.Prefetch(followup, throwaway, bc.vmConfig, interruptCh)
-
+					go func(start time.Time, followup *types.Block, throwaway *state.StateDB, config *vm.Config) {
+						bc.prefetcher.Prefetch(followup, throwaway, *config, interruptCh)
 						blockPrefetchExecuteTimer.Update(time.Since(start))
-					}(time.Now(), followup, throwaway)
+					}(time.Now(), followup, throwaway, vmc)
 				}
 			}
+			steps = 0
+
 			bc.vmConfig.Tracer = tracer
 			bc.vmConfig.Debug = true
 			// Process block using the parent state as reference point
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
+			bc.vmConfig.Tracer = oldTracer
+			steps = len(tracer.StructLogs())
+			tracer.Reset()
 			if err != nil {
 				bc.reportBlock(block, receipts, err)
 				close(interruptCh)
@@ -1873,8 +1885,6 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
-		steps := len(tracer.StructLogs())
-		tracer.Reset()
 		ptime := time.Since(pstart)
 		vstart := time.Now()
 		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
