@@ -39,7 +39,7 @@ const statsReportLimit = 1 * time.Nanosecond
 
 // report prints statistics if some number of blocks have been processed
 // or more than a few seconds have passed since the last message.
-func (st *insertStats) report(chain []*types.Block, index int, dirty common.StorageSize, setHead bool, execTime time.Duration, steps int) {
+func (st *insertStats) report(chain []*types.Block, index int, dirty common.StorageSize, setHead bool, execTime time.Duration, steps int, processDur mclock.AbsTime, validateDur mclock.AbsTime, writeDur mclock.AbsTime, cacheDur mclock.AbsTime) {
 	// Fetch the timings for the batch
 	var (
 		now     = mclock.Now()
@@ -61,6 +61,10 @@ func (st *insertStats) report(chain []*types.Block, index int, dirty common.Stor
 			"elapsed", common.PrettyDuration(elapsed), "mgasps", float64(st.usedGas) * 1000 / float64(elapsed),
 			"execTime", common.PrettyDuration(execTime), "execPercent", float64(execTime) / float64(elapsed),
 			"steps", steps,
+			"processDur", common.PrettyDuration(processDur), "processDurPercent", float64(processDur) / float64(elapsed),
+			"validateDur", common.PrettyDuration(validateDur), "validateDurPercent", float64(validateDur) / float64(elapsed),
+			"writeDur", common.PrettyDuration(writeDur), "writeDurPercent", float64(writeDur) / float64(elapsed),
+			"cacheDur", common.PrettyDuration(cacheDur), "cacheDurPercent", float64(cacheDur) / float64(elapsed),
 		}
 		if timestamp := time.Unix(int64(end.Time()), 0); time.Since(timestamp) > time.Minute {
 			context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)

@@ -1767,6 +1767,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		//EnableMemory: false,
 		//EnableReturnData: false,
 	})
+	vmc := new(vm.Config)
 
 	for ; block != nil && err == nil || errors.Is(err, ErrKnownBlock); block, err = it.next() {
 		// If the chain is terminating, stop processing blocks
@@ -1832,7 +1833,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		pstart := time.Now()
 
 		steps := 0
-
+		var processDur mclock.AbsTime
 		// skip block process if we already have the state, receipts and logs from mining work
 		if !(receiptExist && logExist && stateExist) {
 			// Retrieve the parent block and it's state to execute on top
@@ -1855,9 +1856,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			if !bc.cacheConfig.TrieCleanNoPrefetch {
 				if followup, err := it.peek(); followup != nil && err == nil {
 					throwaway, _ := state.New(parent.Root, bc.stateCache, bc.snaps)
-					vmc := new(vm.Config)
 					vmc.Debug = false
-					vmc.Tracer = oldTracer
+					vmc.Tracer = nil
 					vmc.NoBaseFee = bc.vmConfig.NoBaseFee
 					vmc.EnablePreimageRecording = bc.vmConfig.EnablePreimageRecording
 					vmc.ExtraEips = bc.vmConfig.ExtraEips
@@ -1873,8 +1873,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 
 			bc.vmConfig.Tracer = tracer
 			bc.vmConfig.Debug = true
+			processBegin := mclock.Now()
 			// Process block using the parent state as reference point
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
+			processDur = mclock.Now() - processBegin
+
 			bc.vmConfig.Tracer = oldTracer
 			steps = len(tracer.StructLogs())
 			tracer.Reset()
@@ -1887,11 +1890,13 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 
 		ptime := time.Since(pstart)
 		vstart := time.Now()
+		validateStart := mclock.Now()
 		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
 			bc.reportBlock(block, receipts, err)
 			close(interruptCh)
 			return it.index, err
 		}
+		validateDur := mclock.Now() - validateStart
 		vtime := time.Since(vstart)
 		proctime := time.Since(start) // processing + validation
 
@@ -1916,17 +1921,21 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			wstart = time.Now()
 			status WriteStatus
 		)
+
+		writeBlockBegin := mclock.Now()
 		if !setHead {
 			// Don't set the head, only insert the block
 			err = bc.writeBlockWithState(block, receipts, statedb)
 		} else {
 			status, err = bc.writeBlockAndSetHead(block, receipts, logs, statedb, false)
 		}
+		writeDur := mclock.Now() - writeBlockBegin
 		close(interruptCh)
 		if err != nil {
 			return it.index, err
 		}
 
+		cacheBlockBegin := mclock.Now()
 		// pre-cache the block and receipts, so that it can be retrieved quickly by rcp
 		bc.CacheBlock(block.Hash(), block)
 		err = types.Receipts(receipts).DeriveFields(bc.chainConfig, block.Hash(), block.NumberU64(), block.Time(), block.BaseFee(), block.Transactions())
@@ -1934,7 +1943,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			log.Warn("Failed to derive receipt fields", "block", block.Hash(), "err", err)
 		}
 		bc.CacheReceipts(block.Hash(), receipts)
-
+		cacheBlockDur := mclock.Now() - cacheBlockBegin
 		// Update the metrics touched during block commit
 		accountCommitTimer.Update(statedb.AccountCommits)   // Account commits are complete, we can mark them
 		storageCommitTimer.Update(statedb.StorageCommits)   // Storage commits are complete, we can mark them
@@ -1949,7 +1958,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		stats.usedGas += usedGas
 
 		dirty, _ := bc.triedb.Size()
-		stats.report(chain, it.index, dirty, setHead, ptime, steps)
+		stats.report(chain, it.index, dirty, setHead, ptime, steps, processDur, validateDur, writeDur, cacheBlockDur)
 
 		if !setHead {
 			// After merge we expect few side chains. Simply count
