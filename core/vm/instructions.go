@@ -1076,8 +1076,8 @@ func opPush1Push1(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) 
 		a = a.SetUint64(uint64(scope.Contract.Code[*pc-2]))
 		b = b.SetUint64(uint64(scope.Contract.Code[*pc]))
 	}
-	scope.Stack.push(a)
-	scope.Stack.push(b)
+	scope.Stack.push2(a, b)
+	//scope.Stack.push(b)
 	return nil, nil
 }
 
@@ -1131,8 +1131,8 @@ func opPush1Dup1(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 		value = value.SetUint64(uint64(scope.Contract.Code[*pc]))
 	}
 
-	scope.Stack.push(value)
-	scope.Stack.push(value)
+	scope.Stack.push2(value, value)
+	//scope.Stack.push(value)
 	*pc += 1
 	return nil, nil
 }

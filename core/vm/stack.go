@@ -82,6 +82,30 @@ func (st *Stack) push(d *uint256.Int) {
 	// st.data = append(st.data, *d)
 }
 
+// tos2->tos1->st.data[Len-1]-> ...
+
+// push push to tos
+func (st *Stack) push2(a *uint256.Int, b *uint256.Int) {
+	if !st.Tos1InUse {
+		st.Tos1 = *a
+		st.Tos2 = *b
+		st.Tos1InUse = true
+		st.Tos2InUse = true
+	} else {
+		if st.Tos2InUse {
+			st.data = append(st.data, st.Tos1, st.Tos2)
+		} else {
+			st.data = append(st.data, st.Tos1)
+		}
+		st.Tos1 = *a
+		st.Tos2 = *b
+		st.Tos1InUse = true
+		st.Tos2InUse = true
+	}
+	// NOTE push limit (1024) is checked in baseCheck
+	// st.data = append(st.data, *a)
+}
+
 // pop the top most elem in stack or cache
 func (st *Stack) pop() (ret uint256.Int) {
 	if st.Tos2InUse {
