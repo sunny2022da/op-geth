@@ -124,6 +124,21 @@ func (st *Stack) pop() (ret uint256.Int) {
 	return
 }
 
+// pop the top most elem in stack or cache
+func (st *Stack) pop2() (ret uint256.Int, ret1 uint256.Int) {
+	if st.Tos2InUse && st.Tos1InUse {
+		ret, ret1 = st.Tos2, st.Tos1
+		st.Tos2InUse = false
+		st.Tos1InUse = false
+	} else if !st.Tos2InUse && !st.Tos1InUse {
+		ret, ret1 = st.data[len(st.data)-1], st.data[len(st.data)-2]
+		st.data = st.data[:len(st.data)-2]
+	} else {
+		ret, ret1 = st.pop(), st.pop()
+	}
+	return
+}
+
 func (st *Stack) Len() int {
 	length := len(st.data)
 	if st.Tos1InUse {
