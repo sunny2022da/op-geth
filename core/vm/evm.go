@@ -18,9 +18,11 @@ package vm
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm/compiler"
+	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/holiman/uint256"
 
@@ -238,18 +240,22 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	if isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
 	} else {
+		getCodeBegin := time.Now()
+
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		var code []byte
 		optimized := false
 		codeHash := evm.StateDB.GetCodeHash(addr)
 
+		hit := false
 		// try get from code cache first
 		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
 			codeCache := compiler.GetOpCodeCacheInstance()
 			code = codeCache.GetCachedCode(addr, codeHash)
 			if len(code) != 0 {
 				optimized = true
+				hit = true
 			}
 		}
 		// cache missed or no optimization
@@ -268,7 +274,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 				// Try optimize
 				if evm.Config.EnableOpcodeOptimizations {
 					rawCode := code
-					code, _, _ = GenOrLoadOptimizedCode(addrCopy, code, codeHash)
+					code, hit, _ = GenOrLoadOptimizedCode(addrCopy, code, codeHash)
 					if len(code) == 0 {
 						code = rawCode
 					} else {
@@ -280,7 +286,13 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			contract.SetCallCode(&addrCopy, codeHash, code)
 			contract.optimized = optimized
 
+			getCodeTime := time.Since(getCodeBegin)
+
 			ret, err = evm.interpreter.Run(contract, input, false)
+
+			interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
+			log.Info("Inside Interpreter (gasps)", "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
+
 			gas = contract.Gas
 		}
 	}
