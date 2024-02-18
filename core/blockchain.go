@@ -1761,14 +1761,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			activeState.StopPrefetcher()
 		}
 	}()
-	tracer := logger.NewStructLogger(&logger.Config{
-		Debug: false,
-		//DisableStorage: true,
-		//EnableMemory: false,
-		//EnableReturnData: false,
-	})
+	tracer := logger.NewStepLogger()
 	vmc := new(vm.Config)
-
+	vmcount := new(vm.Config)
 	for ; block != nil && err == nil || errors.Is(err, ErrKnownBlock); block, err = it.next() {
 		// If the chain is terminating, stop processing blocks
 		if bc.insertStopped() {
@@ -1871,16 +1866,26 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 			steps = 0
 
-			bc.vmConfig.Tracer = tracer
-			bc.vmConfig.Debug = true
+			vmcount.Debug = bc.vmConfig.Debug
+			vmcount.Tracer = bc.vmConfig.Tracer
+			vmcount.NoBaseFee = bc.vmConfig.NoBaseFee
+			vmcount.EnablePreimageRecording = bc.vmConfig.EnablePreimageRecording
+			vmcount.ExtraEips = bc.vmConfig.ExtraEips
+			vmcount.EnableOpcodeOptimizations = bc.vmConfig.EnableOpcodeOptimizations
+
+			if oldTracer == nil {
+				vmcount.Tracer = tracer
+				vmcount.Debug = true
+			}
 			processBegin := mclock.Now()
 			// Process block using the parent state as reference point
-			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
+			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, *vmcount)
 			processDur = mclock.Now() - processBegin
+			if oldTracer == nil {
+				steps = tracer.Steps()
+				tracer.Reset()
+			}
 
-			bc.vmConfig.Tracer = oldTracer
-			steps = len(tracer.StructLogs())
-			tracer.Reset()
 			if err != nil {
 				bc.reportBlock(block, receipts, err)
 				close(interruptCh)
