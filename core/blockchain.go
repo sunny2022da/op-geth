@@ -1761,10 +1761,15 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			activeState.StopPrefetcher()
 		}
 	}()
+
 	tracer := logger.NewStepLogger()
 	vmc := new(vm.Config)
 	vmcount := new(vm.Config)
+	var postProcessDur time.Duration = 0
+	var preProcessDur time.Duration = 0
+
 	for ; block != nil && err == nil || errors.Is(err, ErrKnownBlock); block, err = it.next() {
+		preprocessBegin := time.Now()
 		// If the chain is terminating, stop processing blocks
 		if bc.insertStopped() {
 			log.Debug("Abort during block processing")
@@ -1814,7 +1819,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			lastCanon = block
 			continue
 		}
-
+		preProcessDur = time.Since(preprocessBegin)
 		var (
 			err                    error
 			receipts, receiptExist = bc.miningReceiptsCache.Get(block.Hash())
@@ -1973,8 +1978,13 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		dirty, _ := bc.triedb.Size()
 		metricsUpdateTime1 := time.Since(metricsUpdateBegin)
 
-		stats.report(chain, it.index, dirty, setHead, ptime, steps, processDur, validateDur, metricsUpdateTime, writeDur, cacheBlockDur, metricsUpdateTime1)
+		stats.report(chain, it.index, dirty, setHead,
+			ptime, steps, processDur,
+			validateDur, metricsUpdateTime,
+			writeDur, cacheBlockDur, metricsUpdateTime1,
+			preProcessDur, postProcessDur)
 
+		postProcessBegin := time.Now()
 		if !setHead {
 			// After merge we expect few side chains. Simply count
 			// all blocks the CL gives us for GC processing time
@@ -2008,6 +2018,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 				"txs", len(block.Transactions()), "gas", block.GasUsed(), "uncles", len(block.Uncles()),
 				"root", block.Root())
 		}
+		postProcessDur = time.Since(postProcessBegin)
 	}
 
 	// Any blocks remaining here? The only ones we care about are the future ones
