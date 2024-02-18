@@ -1828,7 +1828,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		pstart := time.Now()
 
 		steps := 0
-		var processDur mclock.AbsTime
+		var processDur time.Duration
 		// skip block process if we already have the state, receipts and logs from mining work
 		if !(receiptExist && logExist && stateExist) {
 			// Retrieve the parent block and it's state to execute on top
@@ -1877,10 +1877,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 				vmcount.Tracer = tracer
 				vmcount.Debug = true
 			}
-			processBegin := mclock.Now()
+			processBegin := time.Now()
 			// Process block using the parent state as reference point
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, *vmcount)
-			processDur = mclock.Now() - processBegin
+			processDur = time.Since(processBegin)
 			if oldTracer == nil {
 				steps = tracer.Steps()
 				tracer.Reset()
@@ -1894,17 +1894,20 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		}
 
 		ptime := time.Since(pstart)
+
 		vstart := time.Now()
-		validateStart := mclock.Now()
+		validateStart := time.Now()
 		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
 			bc.reportBlock(block, receipts, err)
 			close(interruptCh)
 			return it.index, err
 		}
-		validateDur := mclock.Now() - validateStart
+		validateDur := time.Since(validateStart)
 		vtime := time.Since(vstart)
+
 		proctime := time.Since(start) // processing + validation
 
+		metricsUpdateStart := time.Now()
 		// Update the metrics touched during block processing and validation
 		accountReadTimer.Update(statedb.AccountReads)                   // Account reads are complete(in processing)
 		storageReadTimer.Update(statedb.StorageReads)                   // Storage reads are complete(in processing)
@@ -1921,26 +1924,29 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		blockExecutionTimer.Update(ptime - trieRead)                    // The time spent on EVM processing
 		blockValidationTimer.Update(vtime - (triehash + trieUpdate))    // The time spent on block validation
 
+		metricsUpdateTime := time.Since(metricsUpdateStart)
+
 		// Write the block to the chain and get the status.
 		var (
 			wstart = time.Now()
 			status WriteStatus
 		)
 
-		writeBlockBegin := mclock.Now()
+		writeBlockBegin := time.Now()
 		if !setHead {
 			// Don't set the head, only insert the block
 			err = bc.writeBlockWithState(block, receipts, statedb)
 		} else {
 			status, err = bc.writeBlockAndSetHead(block, receipts, logs, statedb, false)
 		}
-		writeDur := mclock.Now() - writeBlockBegin
+		writeDur := time.Since(writeBlockBegin)
+
 		close(interruptCh)
 		if err != nil {
 			return it.index, err
 		}
 
-		cacheBlockBegin := mclock.Now()
+		cacheBlockBegin := time.Now()
 		// pre-cache the block and receipts, so that it can be retrieved quickly by rcp
 		bc.CacheBlock(block.Hash(), block)
 		err = types.Receipts(receipts).DeriveFields(bc.chainConfig, block.Hash(), block.NumberU64(), block.Time(), block.BaseFee(), block.Transactions())
@@ -1948,7 +1954,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			log.Warn("Failed to derive receipt fields", "block", block.Hash(), "err", err)
 		}
 		bc.CacheReceipts(block.Hash(), receipts)
-		cacheBlockDur := mclock.Now() - cacheBlockBegin
+		cacheBlockDur := time.Since(cacheBlockBegin)
+
+		metricsUpdateBegin := time.Now()
 		// Update the metrics touched during block commit
 		accountCommitTimer.Update(statedb.AccountCommits)   // Account commits are complete, we can mark them
 		storageCommitTimer.Update(statedb.StorageCommits)   // Storage commits are complete, we can mark them
@@ -1963,7 +1971,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		stats.usedGas += usedGas
 
 		dirty, _ := bc.triedb.Size()
-		stats.report(chain, it.index, dirty, setHead, ptime, steps, processDur, validateDur, writeDur, cacheBlockDur)
+		metricsUpdateTime1 := time.Since(metricsUpdateBegin)
+
+		stats.report(chain, it.index, dirty, setHead, ptime, steps, processDur, validateDur, metricsUpdateTime, writeDur, cacheBlockDur, metricsUpdateTime1)
 
 		if !setHead {
 			// After merge we expect few side chains. Simply count
