@@ -41,8 +41,8 @@ func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common
 		err = codeCache.UpdateCodeCache(address, processedCode, codeHash)
 
 		log.Warn("GenerateOptimizedCode (gasps)", "address", address.Hex())
-		log.Warn("GenerateOptimizedCode (gasps)", "orgStr", codeToString(code))
-		log.Warn("GenerateOptimizedCode (gasps)", "optStr", codeToString(processedCode))
+		log.Warn("GenerateOptimizedCode (gasps)", "orgStr", common.Bytes2Hex(code))
+		log.Warn("GenerateOptimizedCode (gasps)", "optStr", common.Bytes2Hex(processedCode))
 
 		if err != nil {
 			log.Error("Not update code cache", "err", err)
