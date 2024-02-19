@@ -39,11 +39,6 @@ func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common
 		//TODO - dav: - make following in one func.
 		//todo - dav: if cache number > 5. clear. maybe instead reinstall at setcallcode().
 		err = codeCache.UpdateCodeCache(address, processedCode, codeHash)
-
-		log.Warn("GenerateOptimizedCode (gasps)", "address", address.Hex())
-		log.Warn("GenerateOptimizedCode (gasps)", "orgStr", codeToString(code))
-		log.Warn("GenerateOptimizedCode (gasps)", "optStr", codeToString(processedCode))
-
 		if err != nil {
 			log.Error("Not update code cache", "err", err)
 		}
@@ -109,9 +104,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 				// ShlAndSub is actually worked like pushed an uint256,
 				// todo-dav: replace with push32.
 				op := ShlAndSub
-
-				log.Warn("Optimize Code (gasps)", "code", op.String())
-
 				fusedCode[cur] = byte(op)
 				codeCache := compiler.GetOpCodeCacheInstance()
 				codeCache.CacheShlAndSubMap(x, y, z, val)
@@ -135,7 +127,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			code4 := OpCode(fusedCode[cur+4])
 			if code0 == AND && code1 == SWAP1 && code2 == POP && code3 == SWAP2 && code4 == SWAP1 {
 				op := AndSwap1PopSwap2Swap1
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				fusedCode[cur+2] = byte(Nop)
@@ -147,7 +138,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			// Test zero and Jump. target offset at code[2-3]
 			if code0 == ISZERO && code1 == PUSH2 && code4 == JUMPI {
 				op := JumpIfZero
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				fusedCode[cur+4] = byte(Nop)
@@ -174,7 +164,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			code3 := OpCode(fusedCode[cur+3])
 			if code0 == SWAP2 && code1 == SWAP1 && code2 == POP && code3 == JUMP {
 				op := Swap2Swap1PopJump
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				fusedCode[cur+2] = byte(Nop)
@@ -184,7 +173,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == SWAP1 && code1 == POP && code2 == SWAP2 && code3 == SWAP1 {
 				op := Swap1PopSwap2Swap1
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				fusedCode[cur+2] = byte(Nop)
@@ -194,7 +182,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == POP && code1 == SWAP2 && code2 == SWAP1 && code3 == POP {
 				op := PopSwap2Swap1Pop
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				fusedCode[cur+2] = byte(Nop)
@@ -204,7 +191,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			// push and jump
 			if code0 == PUSH2 && code3 == JUMP {
 				op := Push2Jump
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+3] = byte(Nop)
 				skipToNext = true
@@ -212,7 +198,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == PUSH2 && code3 == JUMPI {
 				op := Push2JumpI
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+3] = byte(Nop)
 				skipToNext = true
@@ -220,7 +205,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == PUSH1 && code2 == PUSH1 {
 				op := Push1Push1
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+2] = byte(Nop)
 				skipToNext = true
@@ -239,14 +223,12 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			if code0 == PUSH1 {
 				if code2 == ADD {
 					op := Push1Add
-					log.Warn("Optimize Code (gasps)", "code", op.String())
 					fusedCode[cur] = byte(op)
 					fusedCode[cur+2] = byte(Nop)
 					skipToNext = true
 				}
 				if code2 == SHL {
 					op := Push1Shl
-					log.Warn("Optimize Code (gasps)", "code", op.String())
 					fusedCode[cur] = byte(op)
 					fusedCode[cur+2] = byte(Nop)
 					skipToNext = true
@@ -254,7 +236,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 				if code2 == DUP1 {
 					op := Push1Dup1
-					log.Warn("Optimize Code (gasps)", "code", op.String())
 					fusedCode[cur] = byte(op)
 					fusedCode[cur+2] = byte(Nop)
 					skipToNext = true
@@ -273,14 +254,12 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == SWAP1 && code1 == POP {
 				op := Swap1Pop
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				skipToNext = true
 			}
 			if code0 == POP && code1 == JUMP {
 				op := PopJump
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				skipToNext = true
@@ -288,7 +267,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == POP && code1 == POP {
 				op := Pop2
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				skipToNext = true
@@ -296,7 +274,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == SWAP2 && code1 == SWAP1 {
 				op := Swap2Swap1
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				skipToNext = true
@@ -304,7 +281,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == SWAP2 && code1 == POP {
 				op := Swap2Pop
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				skipToNext = true
@@ -312,7 +288,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 
 			if code0 == DUP2 && code1 == LT {
 				op := Dup2LT
-				log.Warn("Optimize Code (gasps)", "code", op.String())
 				fusedCode[cur] = byte(op)
 				fusedCode[cur+1] = byte(Nop)
 				skipToNext = true
@@ -363,22 +338,4 @@ func calculateSkipSteps(code []byte, cur int) (skip bool, steps int) {
 		return false, 0
 	}
 	return skip, steps
-}
-
-func codeToString(code []byte) string {
-	length := len(code)
-	codeStr := ""
-	for i := 0; i < length; i++ {
-		cur := i
-		opcode := OpCode(code[i])
-		codeStr += opcode.String() + " "
-
-		skip, steps := calculateSkipSteps(code, cur)
-		if skip {
-			i += steps
-			continue
-		}
-
-	}
-	return codeStr
 }
