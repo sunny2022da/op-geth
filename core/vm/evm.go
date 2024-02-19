@@ -291,7 +291,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			ret, err = evm.interpreter.Run(contract, input, false)
 
 			interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-			log.Info("Inside Interpreter (gasps)", "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
+			log.Info("Inside Interpreter (gasps)", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
 
 			gas = contract.Gas
 		}

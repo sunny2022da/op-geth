@@ -1820,6 +1820,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			continue
 		}
 		preProcessDur = time.Since(preprocessBegin)
+
+		varDeclBegin := time.Now()
 		var (
 			err                    error
 			receipts, receiptExist = bc.miningReceiptsCache.Get(block.Hash())
@@ -1830,12 +1832,15 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		)
 
 		interruptCh := make(chan struct{})
-		pstart := time.Now()
+		varDeclDur := time.Since(varDeclBegin)
 
+		pstart := time.Now()
 		steps := 0
+		var processPrepareDur time.Duration
 		var processDur time.Duration
 		// skip block process if we already have the state, receipts and logs from mining work
 		if !(receiptExist && logExist && stateExist) {
+			processPrepareBegin := time.Now()
 			// Retrieve the parent block and it's state to execute on top
 			parent := it.previous()
 			if parent == nil {
@@ -1869,6 +1874,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 					}(time.Now(), followup, throwaway, vmc)
 				}
 			}
+			processPrepareDur = time.Since(processPrepareBegin)
+
 			steps = 0
 
 			vmcount.Debug = bc.vmConfig.Debug
@@ -1886,6 +1893,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			// Process block using the parent state as reference point
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, *vmcount)
 			processDur = time.Since(processBegin)
+
 			if oldTracer == nil {
 				steps = tracer.Steps()
 				tracer.Reset()
@@ -1908,8 +1916,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			return it.index, err
 		}
 		validateDur := time.Since(validateStart)
-		vtime := time.Since(vstart)
 
+		vtime := time.Since(vstart)
 		proctime := time.Since(start) // processing + validation
 
 		metricsUpdateStart := time.Now()
@@ -1982,14 +1990,14 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			ptime, steps, processDur,
 			validateDur, metricsUpdateTime,
 			writeDur, cacheBlockDur, metricsUpdateTime1,
-			preProcessDur, postProcessDur)
+			preProcessDur, postProcessDur, varDeclDur, processPrepareDur)
 
 		postProcessBegin := time.Now()
 		if !setHead {
 			// After merge we expect few side chains. Simply count
 			// all blocks the CL gives us for GC processing time
 			bc.gcproc += proctime
-
+			postProcessDur = time.Since(postProcessBegin)
 			return it.index, nil // Direct block insertion of a single block
 		}
 		switch status {

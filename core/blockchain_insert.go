@@ -39,7 +39,11 @@ const statsReportLimit = 1 * time.Nanosecond
 
 // report prints statistics if some number of blocks have been processed
 // or more than a few seconds have passed since the last message.
-func (st *insertStats) report(chain []*types.Block, index int, dirty common.StorageSize, setHead bool, execTime time.Duration, steps int, processDur time.Duration, validateDur time.Duration, metricUpdateTime1 time.Duration, writeDur time.Duration, cacheDur time.Duration, metricUpdateTime2 time.Duration, preProcessDur time.Duration, postProcessDur time.Duration) {
+func (st *insertStats) report(chain []*types.Block, index int,
+	dirty common.StorageSize, setHead bool, execTime time.Duration, steps int,
+	processDur time.Duration, validateDur time.Duration, metricUpdateTime1 time.Duration,
+	writeDur time.Duration, cacheDur time.Duration, metricUpdateTime2 time.Duration,
+	preProcessDur time.Duration, postProcessDur time.Duration, varDeclDuration time.Duration, processPrepareDur time.Duration) {
 	// Fetch the timings for the batch
 	var (
 		now     = mclock.Now()
@@ -61,6 +65,8 @@ func (st *insertStats) report(chain []*types.Block, index int, dirty common.Stor
 			"elapsed", common.PrettyDuration(elapsed), "mgasps", float64(st.usedGas) * 1000 / float64(elapsed),
 			"execTime", common.PrettyDuration(execTime), "execPercent", float64(execTime) / float64(elapsed),
 			"steps", steps,
+			"varDeclDur", common.PrettyDuration(varDeclDuration), "valDeclDurPercent", float64(varDeclDuration) / float64(elapsed),
+			"processPrepareDur", common.PrettyDuration(processPrepareDur), "processPrepareDurPercent", float64(processPrepareDur) / float64(elapsed),
 			"processDur", common.PrettyDuration(processDur), "processDurPercent", float64(processDur) / float64(elapsed),
 			"validateDur", common.PrettyDuration(validateDur), "validateDurPercent", float64(validateDur) / float64(elapsed),
 			"metricUpdate1", common.PrettyDuration(metricUpdateTime1), "metricUpdate1Percent", float64(metricUpdateTime1) / float64(elapsed),
