@@ -134,20 +134,21 @@ func (t *prestateTracer) CaptureEnd(output []byte, gasUsed uint64, err error) {
 // CaptureState implements the EVMLogger interface to trace a single step of VM execution.
 func (t *prestateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
 	stack := scope.Stack
-	stackLen := stack.Len()
+	stackData := stack.Data()
+	stackLen := len(stackData)
 	caller := scope.Contract.Address()
 	switch {
 	case stackLen >= 1 && (op == vm.SLOAD || op == vm.SSTORE):
-		slot := common.Hash(stack.Back(0).Bytes32())
+		slot := common.Hash(stackData[stackLen-1].Bytes32())
 		t.lookupStorage(caller, slot)
 	case stackLen >= 1 && (op == vm.EXTCODECOPY || op == vm.EXTCODEHASH || op == vm.EXTCODESIZE || op == vm.BALANCE || op == vm.SELFDESTRUCT):
-		addr := common.Address(stack.Back(0).Bytes20())
+		addr := common.Address(stackData[stackLen-1].Bytes20())
 		t.lookupAccount(addr)
 		if op == vm.SELFDESTRUCT {
 			t.deleted[caller] = true
 		}
 	case stackLen >= 5 && (op == vm.DELEGATECALL || op == vm.CALL || op == vm.STATICCALL || op == vm.CALLCODE):
-		addr := common.Address(stack.Back(1).Bytes20())
+		addr := common.Address(stackData[stackLen-2].Bytes20())
 		t.lookupAccount(addr)
 	case op == vm.CREATE:
 		nonce := t.env.StateDB.GetNonce(caller)
@@ -155,11 +156,11 @@ func (t *prestateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64,
 		t.lookupAccount(addr)
 		t.created[addr] = true
 	case stackLen >= 4 && op == vm.CREATE2:
-		offset := stack.Back(1)
-		size := stack.Back(2)
+		offset := stackData[stackLen-2]
+		size := stackData[stackLen-3]
 		init := scope.Memory.GetCopy(int64(offset.Uint64()), int64(size.Uint64()))
 		inithash := crypto.Keccak256(init)
-		salt := stack.Back(3)
+		salt := stackData[stackLen-4]
 		addr := crypto.CreateAddress2(caller, salt.Bytes32(), inithash)
 		t.lookupAccount(addr)
 		t.created[addr] = true

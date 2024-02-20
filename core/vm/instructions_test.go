@@ -115,8 +115,8 @@ func testTwoOperandOp(t *testing.T, tests []TwoOperandTestcase, opFn executionFu
 		stack.push(x)
 		stack.push(y)
 		opFn(&pc, evmInterpreter, &ScopeContext{nil, stack, nil})
-		if stack.Len() != 1 {
-			t.Errorf("Expected one item on stack after %v, got %d: ", name, stack.Len())
+		if len(stack.data) != 1 {
+			t.Errorf("Expected one item on stack after %v, got %d: ", name, len(stack.data))
 		}
 		actual := stack.pop()
 
@@ -604,14 +604,14 @@ func TestOpTstore(t *testing.T) {
 	stack.push(new(uint256.Int))
 	opTstore(&pc, evmInterpreter, &scopeContext)
 	// there should be no elements on the stack after TSTORE
-	if stack.Len() != 0 {
+	if stack.len() != 0 {
 		t.Fatal("stack wrong size")
 	}
 	// push the location to the stack
 	stack.push(new(uint256.Int))
 	opTload(&pc, evmInterpreter, &scopeContext)
 	// there should be one element on the stack after TLOAD
-	if stack.Len() != 1 {
+	if stack.len() != 1 {
 		t.Fatal("stack wrong size")
 	}
 	val := stack.peek()
@@ -700,7 +700,7 @@ func TestCreate2Addreses(t *testing.T) {
 		/*
 			stack          := newstack()
 			// salt, but we don't need that for this test
-			stack.push(big.NewInt(int64(Len(code)))) //size
+			stack.push(big.NewInt(int64(len(code)))) //size
 			stack.push(big.NewInt(0)) // memstart
 			stack.push(big.NewInt(0)) // value
 			gas, _ := gasCreate2(params.GasTable{}, nil, nil, stack, nil, 0)
@@ -732,8 +732,8 @@ func TestRandom(t *testing.T) {
 			evmInterpreter = env.interpreter
 		)
 		opRandom(&pc, evmInterpreter, &ScopeContext{nil, stack, nil})
-		if stack.Len() != 1 {
-			t.Errorf("Expected one item on stack after %v, got %d: ", tt.name, stack.Len())
+		if len(stack.data) != 1 {
+			t.Errorf("Expected one item on stack after %v, got %d: ", tt.name, len(stack.data))
 		}
 		actual := stack.pop()
 		expected, overflow := uint256.FromBig(new(big.Int).SetBytes(tt.random.Bytes()))

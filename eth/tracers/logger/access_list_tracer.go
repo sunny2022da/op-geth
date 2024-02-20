@@ -138,20 +138,20 @@ func (a *AccessListTracer) CaptureStart(env *vm.EVM, from common.Address, to com
 // CaptureState captures all opcodes that touch storage or addresses and adds them to the accesslist.
 func (a *AccessListTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
 	stack := scope.Stack
-	// stackData := stack.Data()
-	stackLen := stack.Len()
+	stackData := stack.Data()
+	stackLen := len(stackData)
 	if (op == vm.SLOAD || op == vm.SSTORE) && stackLen >= 1 {
-		slot := common.Hash(stack.Back(0).Bytes32())
+		slot := common.Hash(stackData[stackLen-1].Bytes32())
 		a.list.addSlot(scope.Contract.Address(), slot)
 	}
 	if (op == vm.EXTCODECOPY || op == vm.EXTCODEHASH || op == vm.EXTCODESIZE || op == vm.BALANCE || op == vm.SELFDESTRUCT) && stackLen >= 1 {
-		addr := common.Address(stack.Back(0).Bytes20())
+		addr := common.Address(stackData[stackLen-1].Bytes20())
 		if _, ok := a.excl[addr]; !ok {
 			a.list.addAddress(addr)
 		}
 	}
 	if (op == vm.DELEGATECALL || op == vm.CALL || op == vm.STATICCALL || op == vm.CALLCODE) && stackLen >= 5 {
-		addr := common.Address(stack.Back(1).Bytes20())
+		addr := common.Address(stackData[stackLen-2].Bytes20())
 		if _, ok := a.excl[addr]; !ok {
 			a.list.addAddress(addr)
 		}

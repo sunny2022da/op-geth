@@ -650,7 +650,6 @@ func opCreate2(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 		input             = scope.Memory.GetCopy(int64(offset.Uint64()), int64(size.Uint64()))
 		gas               = scope.Contract.Gas
 	)
-
 	// Apply EIP150
 	gas -= gas / 64
 	scope.Contract.UseGas(gas)
@@ -816,12 +815,14 @@ func opStaticCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) 
 func opReturn(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	offset, size := scope.Stack.pop2()
 	ret := scope.Memory.GetPtr(int64(offset.Uint64()), int64(size.Uint64()))
+
 	return ret, errStopToken
 }
 
 func opRevert(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	offset, size := scope.Stack.pop2()
 	ret := scope.Memory.GetPtr(int64(offset.Uint64()), int64(size.Uint64()))
+
 	interpreter.returnData = ret
 	return ret, ErrExecutionReverted
 }
@@ -861,7 +862,6 @@ func makeLog(size int) executionFunc {
 			return nil, ErrWriteProtection
 		}
 		topics := make([]common.Hash, size)
-
 		stack := scope.Stack
 		mStart, mSize := stack.pop(), stack.pop()
 		for i := 0; i < size; i++ {
