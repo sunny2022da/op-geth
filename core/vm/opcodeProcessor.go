@@ -306,7 +306,8 @@ func doCodeFusion(code []byte) ([]byte, error) {
 		}
 
 	}
-	return fusedCode, nil
+	// return fusedCode, nil
+	return code, nil
 }
 
 func calculateSkipSteps(code []byte, cur int) (skip bool, steps int) {
