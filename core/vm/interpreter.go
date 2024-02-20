@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"sync"
+	"time"
 )
 
 // EVMInterpreterPool is a pool of EVMInterpreter instances
@@ -183,6 +184,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	// the execution of one of the operations or until the done flag is set by the
 	// parent context.
 	for {
+		opcodeBegin := time.Now()
 		if in.evm.Config.Debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
@@ -246,6 +248,8 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			break
 		}
 		pc++
+		opcodeDur := time.Since(opcodeBegin)
+		log.Info("Inside Interpreter (gasps)", "depth", in.evm.depth, "opcode", op.String(), "execTime", common.PrettyDuration(opcodeDur))
 	}
 
 	if err == errStopToken {
