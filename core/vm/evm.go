@@ -17,7 +17,6 @@
 package vm
 
 import (
-	"github.com/ethereum/go-ethereum/core/vm/compiler"
 	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
@@ -249,17 +248,17 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		var code []byte
 		optimized := false
 		codeHash := evm.StateDB.GetCodeHash(addr)
-
 		hit := false
-		// try get from code cache first
-		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addr, codeHash)
-			if len(code) != 0 {
-				optimized = true
-				hit = true
-			}
-		}
+		/*
+			// try get from code cache first
+			if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+				codeCache := compiler.GetOpCodeCacheInstance()
+				code = codeCache.GetCachedCode(addr, codeHash)
+				if len(code) != 0 {
+					optimized = true
+					hit = true
+				}
+			}*/
 		// cache missed or no optimization
 		if len(code) == 0 {
 			code = evm.StateDB.GetCode(addr)
@@ -272,19 +271,20 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
 			// since code is got from cache or db, codehash can not be nil.
-			if !optimized {
-				// Try optimize
-				if evm.Config.EnableOpcodeOptimizations {
-					rawCode := code
-					code, hit, _ = GenOrLoadOptimizedCode(addrCopy, code, codeHash)
-					if len(code) == 0 {
-						code = rawCode
-					} else {
-						contract.RawCode = rawCode
-						optimized = true
+			/*
+				if !optimized {
+					// Try optimize
+					if evm.Config.EnableOpcodeOptimizations {
+						rawCode := code
+						code, hit, _ = GenOrLoadOptimizedCode(addrCopy, code, codeHash)
+						if len(code) == 0 {
+							code = rawCode
+						} else {
+							contract.RawCode = rawCode
+							optimized = true
+						}
 					}
-				}
-			}
+				}*/
 			contract.SetCallCode(&addrCopy, codeHash, code)
 			contract.optimized = optimized
 
@@ -358,26 +358,28 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		var code []byte
 		var rawCode []byte
 		optimized := false
-		hit := false
-		// try get from cache
-		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addrCopy, codeHash)
-			if len(code) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-				code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
-				if len(code) != 0 {
-					optimized = true
-					contract.RawCode = rawCode
-				} else {
-					optimized = false
-				}
-			} else {
-				hit = true
-				optimized = true
-			}
-		}
 
+		hit := false
+		/*
+			// try get from cache
+			if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+				codeCache := compiler.GetOpCodeCacheInstance()
+				code = codeCache.GetCachedCode(addrCopy, codeHash)
+				if len(code) == 0 {
+					rawCode = evm.StateDB.GetCode(addrCopy)
+					code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
+					if len(code) != 0 {
+						optimized = true
+						contract.RawCode = rawCode
+					} else {
+						optimized = false
+					}
+				} else {
+					hit = true
+					optimized = true
+				}
+			}
+		*/
 		if len(code) == 0 {
 			if len(rawCode) == 0 {
 				rawCode = evm.StateDB.GetCode(addrCopy)
@@ -445,23 +447,23 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		var rawCode []byte
 		optimized := false
 		hit := false
-		// try get from cache
-		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addrCopy, codeHash)
-			if len(code) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-				code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
-				if len(code) != 0 {
+		/*	// try get from cache
+			if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+				codeCache := compiler.GetOpCodeCacheInstance()
+				code = codeCache.GetCachedCode(addrCopy, codeHash)
+				if len(code) == 0 {
+					rawCode = evm.StateDB.GetCode(addrCopy)
+					code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
+					if len(code) != 0 {
+						optimized = true
+						contract.RawCode = rawCode
+					}
+				} else {
 					optimized = true
-					contract.RawCode = rawCode
+					hit = true
 				}
-			} else {
-				optimized = true
-				hit = true
 			}
-		}
-
+		*/
 		if len(code) == 0 {
 			if len(rawCode) == 0 {
 				rawCode = evm.StateDB.GetCode(addrCopy)
@@ -538,25 +540,26 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		var rawCode []byte
 		optimized := false
 		hit := false
-		// try get from cache
-		if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addrCopy, codeHash)
-			if len(code) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-				code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
-				if len(code) != 0 {
-					optimized = true
-					contract.RawCode = rawCode
+		/*
+			// try get from cache
+			if codeHash != (common.Hash{}) && evm.Config.EnableOpcodeOptimizations {
+				codeCache := compiler.GetOpCodeCacheInstance()
+				code = codeCache.GetCachedCode(addrCopy, codeHash)
+				if len(code) == 0 {
+					rawCode = evm.StateDB.GetCode(addrCopy)
+					code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode, codeHash)
+					if len(code) != 0 {
+						optimized = true
+						contract.RawCode = rawCode
+					} else {
+						optimized = false
+					}
 				} else {
-					optimized = false
+					optimized = true
+					hit = true
 				}
-			} else {
-				optimized = true
-				hit = true
 			}
-		}
-
+		*/
 		if len(code) == 0 {
 			if len(rawCode) == 0 {
 				rawCode = evm.StateDB.GetCode(addrCopy)
