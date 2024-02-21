@@ -21,7 +21,7 @@ type ThreeU8Operands struct {
 }
 
 type OpCodeCache struct {
-	opcodesCache   map[common.Address]map[common.Hash]OptCode
+	opcodesCache   map[common.Address]OptCode
 	codeCacheMutex sync.RWMutex
 	codeCacheSize  uint64
 	/* map of shl and sub arguments and results*/
@@ -29,11 +29,11 @@ type OpCodeCache struct {
 	shlAndSubMapMutex sync.RWMutex
 }
 
-func (c *OpCodeCache) GetCachedCode(address common.Address, codeHash common.Hash) OptCode {
+func (c *OpCodeCache) GetCachedCode(address common.Address) OptCode {
 
 	c.codeCacheMutex.RLock()
 
-	processedCode, ok := c.opcodesCache[address][codeHash]
+	processedCode, ok := c.opcodesCache[address]
 	if !ok {
 		processedCode = nil
 	}
@@ -54,7 +54,7 @@ func (c *OpCodeCache) RemoveCachedCode(address common.Address) {
 	c.codeCacheMutex.Unlock()
 }
 
-func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, codeHash common.Hash) error {
+func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) error {
 
 	c.codeCacheMutex.Lock()
 
@@ -68,10 +68,7 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, code
 		}
 		c.codeCacheSize = 0
 	}
-	if c.opcodesCache[address] == nil {
-		c.opcodesCache[address] = make(map[common.Hash]OptCode)
-	}
-	c.opcodesCache[address][codeHash] = code
+	c.opcodesCache[address] = code
 	c.codeCacheSize += uint64(len(code))
 	c.codeCacheMutex.Unlock()
 	return nil
@@ -101,7 +98,7 @@ var opcodeCache *OpCodeCache
 func GetOpCodeCacheInstance() *OpCodeCache {
 	once.Do(func() {
 		opcodeCache = &OpCodeCache{
-			opcodesCache:   make(map[common.Address]map[common.Hash]OptCode, CodeCacheGCThreshold>>10),
+			opcodesCache:   make(map[common.Address]OptCode, CodeCacheGCThreshold>>10),
 			shlAndSubMap:   make(map[ThreeU8Operands]*uint256.Int, 4096),
 			codeCacheMutex: sync.RWMutex{},
 		}

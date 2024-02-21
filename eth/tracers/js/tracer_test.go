@@ -85,7 +85,7 @@ func runTraceWithOption(tracer tracers.Tracer, vmctx *vmContext, chaincfg *param
 	if enableOpti {
 		// reset the code also require flush code cache.
 		compiler.GetOpCodeCacheInstance().RemoveCachedCode(contract.Address())
-		optimized, _, _ := vm.GenOrLoadOptimizedCode(contract.Address(), contract.Code, common.Hash{})
+		optimized, _, _ := vm.GenOrLoadOptimizedCode(contract.Address(), contract.Code)
 		contract.RawCode = contract.Code
 		contract.Code = optimized
 	}
