@@ -449,7 +449,7 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.SetCode(crypto.Keccak256Hash(code), code)
-		// every time we set code. regenerate the optimized code in code cache.
+		// every time set code in DB. regenerate the optimized code in code cache.
 		vm.GenOrRewriteOptimizedCode(addr, code)
 	}
 }
