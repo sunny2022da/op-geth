@@ -246,23 +246,9 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
-		var code []byte
-		optimized := false
+		// try get from cache
+		optimized, code := tryGetOptimizedCode(evm, addr)
 
-		hit := false
-		// try get from code cache first
-		if evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addr)
-			if len(code) != 0 {
-				optimized = true
-				hit = true
-			}
-		}
-		// cache missed or no optimization
-		if len(code) == 0 {
-			code = evm.StateDB.GetCode(addr)
-		}
 		if len(code) == 0 {
 			ret, err = nil, nil // gas is unchanged
 		} else {
@@ -270,22 +256,9 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// If the account has no code, we can abort here
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
-			// since code is got from cache or db, codehash can not be nil.
-			if !optimized {
-				// Try optimize
-				if evm.Config.EnableOpcodeOptimizations {
-					rawCode := code
-					code, hit, _ = GenOrLoadOptimizedCode(addrCopy, code)
-					if len(code) == 0 {
-						code = rawCode
-					} else {
-						contract.RawCode = rawCode
-						optimized = true
-					}
-				}
-			}
 
 			contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
+
 			contract.optimized = optimized
 
 			getCodeTime := time.Since(getCodeBegin)
@@ -293,7 +266,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			ret, err = evm.interpreter.Run(contract, input, false)
 
 			interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-			log.Info("Inside Interpreter (gasps) CALL", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
+			log.Info("Inside Interpreter (gasps) CALL", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
 
 			gas = contract.Gas
 		}
@@ -353,35 +326,9 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(caller.Address()), value, gas)
-		var code []byte
-		var rawCode []byte
-		optimized := false
-		hit := false
 		// try get from cache
-		if evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addrCopy)
-			if len(code) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-				code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode)
-				if len(code) != 0 {
-					optimized = true
-					contract.RawCode = rawCode
-				} else {
-					optimized = false
-				}
-			} else {
-				hit = true
-				optimized = true
-			}
-		}
+		optimized, code := tryGetOptimizedCode(evm, addrCopy)
 
-		if len(code) == 0 {
-			if len(rawCode) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-			}
-			code = rawCode
-		}
 		contract.optimized = optimized
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
 
@@ -390,7 +337,7 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		ret, err = evm.interpreter.Run(contract, input, false)
 
 		interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-		log.Info("Inside Interpreter (gasps) CALLCODE", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
+		log.Info("Inside Interpreter (gasps) CALLCODE", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
 
 		gas = contract.Gas
 	}
@@ -438,33 +385,9 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		// Initialise a new contract and make initialise the delegate values
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
 
-		var code []byte
-		var rawCode []byte
-		optimized := false
-		hit := false
 		// try get from cache
-		if evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addrCopy)
-			if len(code) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-				code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode)
-				if len(code) != 0 {
-					optimized = true
-					contract.RawCode = rawCode
-				}
-			} else {
-				optimized = true
-				hit = true
-			}
-		}
+		optimized, code := tryGetOptimizedCode(evm, addrCopy)
 
-		if len(code) == 0 {
-			if len(rawCode) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-			}
-			code = rawCode
-		}
 		contract.optimized = optimized
 
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
@@ -474,7 +397,7 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		ret, err = evm.interpreter.Run(contract, input, false)
 
 		interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-		log.Info("Inside Interpreter (gasps) DELEGATECALL ", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
+		log.Info("Inside Interpreter (gasps) DELEGATECALL ", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -530,35 +453,9 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
 
-		var code []byte
-		var rawCode []byte
-		optimized := false
-		hit := false
 		// try get from cache
-		if evm.Config.EnableOpcodeOptimizations {
-			codeCache := compiler.GetOpCodeCacheInstance()
-			code = codeCache.GetCachedCode(addrCopy)
-			if len(code) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-				code, hit, _ = GenOrLoadOptimizedCode(addrCopy, rawCode)
-				if len(code) != 0 {
-					optimized = true
-					contract.RawCode = rawCode
-				} else {
-					optimized = false
-				}
-			} else {
-				optimized = true
-				hit = true
-			}
-		}
+		optimized, code := tryGetOptimizedCode(evm, addrCopy)
 
-		if len(code) == 0 {
-			if len(rawCode) == 0 {
-				rawCode = evm.StateDB.GetCode(addrCopy)
-			}
-			code = rawCode
-		}
 		contract.optimized = optimized
 
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
@@ -571,7 +468,7 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		ret, err = evm.interpreter.Run(contract, input, true)
 
 		interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-		log.Info("Inside Interpreter (gasps) STATIC ", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", hit)
+		log.Info("Inside Interpreter (gasps) STATIC ", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
 
 		gas = contract.Gas
 	}
@@ -582,6 +479,23 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		}
 	}
 	return ret, gas, err
+}
+
+func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
+	optimized := false
+	var code []byte
+	if evm.Config.EnableOpcodeOptimizations {
+		codeCache := compiler.GetOpCodeCacheInstance()
+		code = codeCache.GetCachedCode(addrCopy)
+		if len(code) != 0 {
+			optimized = true
+		}
+	}
+
+	if len(code) == 0 {
+		code = evm.StateDB.GetCode(addrCopy)
+	}
+	return optimized, code
 }
 
 type codeAndHash struct {

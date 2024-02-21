@@ -17,16 +17,13 @@
 package vm
 
 import (
-	"github.com/ethereum/go-ethereum/core/vm/compiler"
-	"github.com/ethereum/go-ethereum/log"
-	"sync/atomic"
-	"time"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm/compiler"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"sync/atomic"
 )
 
 func opAdd(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
@@ -374,14 +371,7 @@ func opCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([
 	contractRawCode := scope.Contract.Code
 
 	if interpreter.evm.Config.EnableOpcodeOptimizations && scope.Contract.optimized {
-		if scope.Contract.RawCode == nil || len(scope.Contract.RawCode) == 0 {
-			// if we have optimization, get rawCode from DB.
-			getCodeBegin := time.Now()
-			scope.Contract.RawCode = interpreter.evm.StateDB.GetCode(*scope.Contract.CodeAddr)
-			getCodeDur := time.Since(getCodeBegin)
-			log.Warn("opCodeCopy getRawCode (gasps)", "Duration", common.PrettyDuration(getCodeDur))
-		}
-		contractRawCode = scope.Contract.RawCode
+		contractRawCode = interpreter.evm.StateDB.GetCode(*scope.Contract.CodeAddr)
 	}
 	codeCopy := getData(contractRawCode, uint64CodeOffset, length.Uint64())
 	scope.Memory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)

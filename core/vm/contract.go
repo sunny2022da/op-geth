@@ -59,7 +59,6 @@ type Contract struct {
 
 	Gas       uint64
 	value     *big.Int
-	RawCode   []byte
 	optimized bool
 }
 
