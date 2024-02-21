@@ -11,7 +11,7 @@ import (
 const CodeCacheGCThreshold = 1024 * 1024 * 1024 /* 1 GB */
 // CodeCacheGCSoftLimit is used to trigger GC for memory control.
 // upper limit of bytecodes of smart contract is ~25MB.
-const CodeCacheGCSoftLimit = 2 * 1024 * 1024 /* 2MB */
+const CodeCacheGCSoftLimit = 200 * 1024 * 1024 /* 200MB */
 
 type OptCode []byte
 
@@ -69,7 +69,7 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, code
 		c.codeCacheSize = 0
 	}
 	if c.opcodesCache[address] == nil {
-		c.opcodesCache[address] = make(map[common.Hash]OptCode, 3)
+		c.opcodesCache[address] = make(map[common.Hash]OptCode)
 	}
 	c.opcodesCache[address][codeHash] = code
 	c.codeCacheSize += uint64(len(code))
@@ -98,18 +98,13 @@ func (c *OpCodeCache) GetValFromShlAndSubMap(x uint8, y uint8, z uint8) *uint256
 var once sync.Once
 var opcodeCache *OpCodeCache
 
-func newOpCodeCache() *OpCodeCache {
-	codeCache := new(OpCodeCache)
-	codeCache.opcodesCache = make(map[common.Address]map[common.Hash]OptCode, CodeCacheGCThreshold>>10)
-	codeCache.shlAndSubMap = make(map[ThreeU8Operands]*uint256.Int, 4096)
-	codeCache.codeCacheMutex = sync.RWMutex{}
-	opcodeCache = codeCache
-	return codeCache
-}
-
 func GetOpCodeCacheInstance() *OpCodeCache {
 	once.Do(func() {
-		opcodeCache = newOpCodeCache()
+		opcodeCache = &OpCodeCache{
+			opcodesCache:   make(map[common.Address]map[common.Hash]OptCode, CodeCacheGCThreshold>>10),
+			shlAndSubMap:   make(map[ThreeU8Operands]*uint256.Int, 4096),
+			codeCacheMutex: sync.RWMutex{},
+		}
 	})
 	return opcodeCache
 }

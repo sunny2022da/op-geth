@@ -19,6 +19,9 @@ type OpCodeProcessorConfig struct {
 }
 
 func GenOrLoadOptimizedCode(address common.Address, code []byte, codeHash common.Hash) (compiler.OptCode, bool, error) {
+	if len(code) != 0 {
+		return code, false, nil
+	}
 	/* Try load from cache */
 	codeCache := compiler.GetOpCodeCacheInstance()
 	// TODO-dav:The lock on the whole codecache is not optimal, consider use smaller granularity.
