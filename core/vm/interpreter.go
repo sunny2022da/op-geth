@@ -179,6 +179,12 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}()
 	}
 
+	printInstr := false
+	if in.evm.Context.BlockNumber.Uint64() == uint64(455082) {
+		printInstr = true
+		log.Info("Inside Interpreter (gasps)", "=======codeAddr ", contract.CodeAddr.String(), "=========", "")
+	}
+
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
@@ -258,11 +264,15 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		gasCalDur := opcodeGasCalTime.Sub(getOpTime)
 		execDur := opcodeExecTime.Sub(opcodeGasCalTime)
 		opcodeDur := opcodeExecTime.Sub(opcodeBegin)
-		log.Info("Inside Interpreter (gasps)", "depth", in.evm.depth, "opcode", op.String(),
-			"runTime", common.PrettyDuration(opcodeDur), "getOpDur", common.PrettyDuration(getOpDuration),
-			"gasCalTime", common.PrettyDuration(gasCalDur),
-			"exeTime", common.PrettyDuration(execDur))
+		if printInstr {
+			log.Info("Inside Interpreter (gasps)", "depth", in.evm.depth, "opcode", op.String(),
+				"runTime", common.PrettyDuration(opcodeDur), "getOpDur", common.PrettyDuration(getOpDuration),
+				"gasCalTime", common.PrettyDuration(gasCalDur),
+				"exeTime", common.PrettyDuration(execDur))
+		}
 	}
+
+	printInstr = false
 
 	if err == errStopToken {
 		err = nil // clear stop token error

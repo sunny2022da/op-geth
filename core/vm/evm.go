@@ -498,6 +498,15 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 	if len(code) == 0 {
 		code = evm.StateDB.GetCode(addrCopy)
 	}
+
+	if evm.Context.BlockNumber.Uint64() == uint64(455082) {
+		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "hit", optimized)
+		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "original code::", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
+		if optimized {
+			log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "optimized code::", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
+		}
+	}
+
 	return optimized, code
 }
 
