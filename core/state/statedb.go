@@ -20,7 +20,7 @@ package state
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"math/big"
 	"sort"
 	"sync"
@@ -450,7 +450,7 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	if stateObject != nil {
 		stateObject.SetCode(crypto.Keccak256Hash(code), code)
 		// every time set code in DB. regenerate the optimized code in code cache.
-		vm.GenOrRewriteOptimizedCode(addr, code)
+		compiler.GetOpcodeProcessorInstance().RewriteOptimizedCodeForDB(addr, code)
 	}
 }
 

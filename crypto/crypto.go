@@ -24,7 +24,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/vm/compiler"
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"hash"
 	"io"
 	"math/big"

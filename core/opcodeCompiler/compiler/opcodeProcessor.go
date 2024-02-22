@@ -1,31 +1,65 @@
-package vm
+package compiler
 
 import (
+	"errors"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/vm/compiler"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
+	"sync"
 )
 
 type CodeType uint8
 
-const (
-	Opcode = iota
-	/* CompiledCode */
-)
+var ErrFailPreprocessing = errors.New("fail to do preprocessing")
+
+var initOnce sync.Once
+var opcodeProcessor *OpcodeProcessor
+
+type OpcodeProcessor struct {
+	enabled   bool
+	codeCache *OpCodeCache
+}
 
 type OpCodeProcessorConfig struct {
 	DoOpcodeFusion bool
 }
 
+func GetOpcodeProcessorInstance() *OpcodeProcessor {
+	initOnce.Do(func() {
+		opcodeProcessor = &OpcodeProcessor{
+			enabled:   false,
+			codeCache: nil,
+		}
+	})
+	return opcodeProcessor
+}
+
+func (p *OpcodeProcessor) EnableOptimization() {
+	p.enabled = true
+	p.codeCache = GetOpCodeCacheInstance()
+}
+
+func (p *OpcodeProcessor) DisableOptimization() {
+	p.enabled = false
+}
+
+func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte) {
+	if p.enabled {
+		p.GenOrRewriteOptimizedCode(address, code)
+	} else {
+		// flush in case there are invalid cached code.
+		GetOpCodeCacheInstance().RemoveCachedCode(address)
+	}
+}
+
 // GenOrRewriteOptimizedCode generate the optimized code and refresh the codecache.
-func GenOrRewriteOptimizedCode(address common.Address, code []byte) (compiler.OptCode, error) {
+func (p *OpcodeProcessor) GenOrRewriteOptimizedCode(address common.Address, code []byte) (OptCode, error) {
 	processedCode, err := processByteCodes(code)
 	if err != nil {
 		log.Error("Can not generate optimized code: %s\n", err.Error())
 		return nil, err
 	}
-	codeCache := compiler.GetOpCodeCacheInstance()
+	codeCache := p.codeCache
 	err = codeCache.UpdateCodeCache(address, processedCode)
 	if err != nil {
 		log.Error("Not update code cache", "err", err)
@@ -33,14 +67,14 @@ func GenOrRewriteOptimizedCode(address common.Address, code []byte) (compiler.Op
 	return processedCode, err
 }
 
-func GenOrLoadOptimizedCode(address common.Address, code []byte) (compiler.OptCode, bool, error) {
+func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []byte) (OptCode, bool, error) {
 	/* Try load from cache */
-	codeCache := compiler.GetOpCodeCacheInstance()
+	codeCache := p.codeCache
 	processedCode := codeCache.GetCachedCode(address)
 	hit := false
 	var err error = nil
 	if processedCode == nil || len(processedCode) == 0 {
-		processedCode, err = GenOrRewriteOptimizedCode(address, code)
+		processedCode, err = p.GenOrRewriteOptimizedCode(address, code)
 		hit = false
 	} else {
 		hit = true
@@ -48,20 +82,11 @@ func GenOrLoadOptimizedCode(address common.Address, code []byte) (compiler.OptCo
 	return processedCode, hit, err
 }
 
-func GetProcessedCode(kind int, contract *Contract) (compiler.OptCode, bool, error) {
-	if kind != Opcode {
-		log.Error("Only support optimizing of the opcode")
-		return nil, false, ErrFailPreprocessing
-	}
-
-	return GenOrLoadOptimizedCode(contract.Address(), contract.Code)
-}
-
-func processByteCodes(code []byte) (compiler.OptCode, error) {
+func processByteCodes(code []byte) (OptCode, error) {
 	return doOpcodesProcess(code)
 }
 
-func doOpcodesProcess(code []byte) (compiler.OptCode, error) {
+func doOpcodesProcess(code []byte) (OptCode, error) {
 	code, err := doCodeFusion(code)
 	if err != nil {
 		return nil, ErrFailPreprocessing
@@ -78,14 +103,14 @@ func doCodeFusion(code []byte) ([]byte, error) {
 		skipToNext = false
 
 		if length > cur+7 {
-			code0 := OpCode(fusedCode[cur+0])
-			code1 := OpCode(fusedCode[cur+1])
-			code2 := OpCode(fusedCode[cur+2])
-			code3 := OpCode(fusedCode[cur+3])
-			code4 := OpCode(fusedCode[cur+4])
-			code5 := OpCode(fusedCode[cur+5])
-			code6 := OpCode(fusedCode[cur+6])
-			code7 := OpCode(fusedCode[cur+7])
+			code0 := ByteCode(fusedCode[cur+0])
+			code1 := ByteCode(fusedCode[cur+1])
+			code2 := ByteCode(fusedCode[cur+2])
+			code3 := ByteCode(fusedCode[cur+3])
+			code4 := ByteCode(fusedCode[cur+4])
+			code5 := ByteCode(fusedCode[cur+5])
+			code6 := ByteCode(fusedCode[cur+6])
+			code7 := ByteCode(fusedCode[cur+7])
 			// shift and then sub - this is mostly used to generate a 160bit addr from 256bit value.
 			// The following 7 bytes are usually used to generate the bit mast of 150 bits of 1s
 			// TODO-dav: more specifically, testing the arguments are 0x1, 0x1 and 0xa0, and then these can be
@@ -104,7 +129,7 @@ func doCodeFusion(code []byte) ([]byte, error) {
 				// todo-dav: replace with push32.
 				op := ShlAndSub
 				fusedCode[cur] = byte(op)
-				codeCache := compiler.GetOpCodeCacheInstance()
+				codeCache := GetOpCodeCacheInstance()
 				codeCache.CacheShlAndSubMap(x, y, z, val)
 
 				// now add three operands in code.
@@ -119,11 +144,11 @@ func doCodeFusion(code []byte) ([]byte, error) {
 		}
 
 		if length > cur+4 {
-			code0 := OpCode(fusedCode[cur+0])
-			code1 := OpCode(fusedCode[cur+1])
-			code2 := OpCode(fusedCode[cur+2])
-			code3 := OpCode(fusedCode[cur+3])
-			code4 := OpCode(fusedCode[cur+4])
+			code0 := ByteCode(fusedCode[cur+0])
+			code1 := ByteCode(fusedCode[cur+1])
+			code2 := ByteCode(fusedCode[cur+2])
+			code3 := ByteCode(fusedCode[cur+3])
+			code4 := ByteCode(fusedCode[cur+4])
 			if code0 == AND && code1 == SWAP1 && code2 == POP && code3 == SWAP2 && code4 == SWAP1 {
 				op := AndSwap1PopSwap2Swap1
 				fusedCode[cur] = byte(op)
@@ -157,10 +182,10 @@ func doCodeFusion(code []byte) ([]byte, error) {
 		}
 
 		if length > cur+3 {
-			code0 := OpCode(fusedCode[cur+0])
-			code1 := OpCode(fusedCode[cur+1])
-			code2 := OpCode(fusedCode[cur+2])
-			code3 := OpCode(fusedCode[cur+3])
+			code0 := ByteCode(fusedCode[cur+0])
+			code1 := ByteCode(fusedCode[cur+1])
+			code2 := ByteCode(fusedCode[cur+2])
+			code3 := ByteCode(fusedCode[cur+3])
 			if code0 == SWAP2 && code1 == SWAP1 && code2 == POP && code3 == JUMP {
 				op := Swap2Swap1PopJump
 				fusedCode[cur] = byte(op)
@@ -216,9 +241,9 @@ func doCodeFusion(code []byte) ([]byte, error) {
 		}
 
 		if length > cur+2 {
-			code0 := OpCode(fusedCode[cur+0])
-			_ = OpCode(fusedCode[cur+1])
-			code2 := OpCode(fusedCode[cur+2])
+			code0 := ByteCode(fusedCode[cur+0])
+			_ = ByteCode(fusedCode[cur+1])
+			code2 := ByteCode(fusedCode[cur+2])
 			if code0 == PUSH1 {
 				if code2 == ADD {
 					op := Push1Add
@@ -248,8 +273,8 @@ func doCodeFusion(code []byte) ([]byte, error) {
 		}
 
 		if length > cur+1 {
-			code0 := OpCode(fusedCode[cur+0])
-			code1 := OpCode(fusedCode[cur+1])
+			code0 := ByteCode(fusedCode[cur+0])
+			code1 := ByteCode(fusedCode[cur+1])
 
 			if code0 == SWAP1 && code1 == POP {
 				op := Swap1Pop
@@ -310,7 +335,7 @@ func doCodeFusion(code []byte) ([]byte, error) {
 }
 
 func calculateSkipSteps(code []byte, cur int) (skip bool, steps int) {
-	inst := OpCode(code[cur])
+	inst := ByteCode(code[cur])
 	if inst >= PUSH1 && inst <= PUSH32 {
 		// skip the data.
 		steps = int(inst - PUSH1 + 1)

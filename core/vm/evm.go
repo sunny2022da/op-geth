@@ -17,7 +17,7 @@
 package vm
 
 import (
-	"github.com/ethereum/go-ethereum/core/vm/compiler"
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"github.com/ethereum/go-ethereum/log"
 	"math/big"
 	"sync"
@@ -153,6 +153,9 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 	evm.callGasTemp = 0
 	evm.depth = 0
 	evm.interpreter = NewEVMInterpreter(evm)
+	if config.EnableOpcodeOptimizations {
+		compiler.GetOpcodeProcessorInstance().EnableOptimization()
+	}
 	return evm
 }
 

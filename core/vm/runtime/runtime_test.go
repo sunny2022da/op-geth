@@ -18,7 +18,7 @@ package runtime
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/vm/compiler"
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"math/big"
 	"os"
 	"strings"

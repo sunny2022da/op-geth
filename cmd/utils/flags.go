@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"math"
 	"math/big"
 	"net/http"
@@ -1925,6 +1926,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.IsSet(VMOpcodeOptimizeFlag.Name) {
 		// TODO(fjl): force-enable this in --dev mode
 		cfg.EnableOpcodeOptimizing = ctx.Bool(VMOpcodeOptimizeFlag.Name)
+		compiler.GetOpcodeProcessorInstance().EnableOptimization()
 	}
 
 	if ctx.IsSet(RPCGlobalGasCapFlag.Name) {
@@ -2373,6 +2375,9 @@ func MakeChain(ctx *cli.Context, stack *node.Node, readonly bool) (*core.BlockCh
 	vmcfg := vm.Config{EnablePreimageRecording: ctx.Bool(VMEnableDebugFlag.Name),
 		EnableOpcodeOptimizations: ctx.Bool(VMOpcodeOptimizeFlag.Name)}
 
+	if vmcfg.EnableOpcodeOptimizations {
+		compiler.GetOpcodeProcessorInstance()
+	}
 	// Disable transaction indexing/unindexing by default.
 	chain, err := core.NewBlockChain(chainDb, cache, gspec, nil, engine, vmcfg, nil, nil)
 	if err != nil {
