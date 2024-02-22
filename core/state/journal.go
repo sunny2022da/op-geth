@@ -17,6 +17,7 @@
 package state
 
 import (
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -205,6 +206,7 @@ func (ch nonceChange) dirtied() *common.Address {
 
 func (ch codeChange) revert(s *StateDB) {
 	s.getStateObject(*ch.account).setCode(common.BytesToHash(ch.prevhash), ch.prevcode)
+	compiler.GetOpcodeProcessorInstance().RewriteOptimizedCodeForDB(*ch.account, ch.prevcode)
 }
 
 func (ch codeChange) dirtied() *common.Address {

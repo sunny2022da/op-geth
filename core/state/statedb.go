@@ -483,6 +483,8 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 // getStateObject will return a non-nil account after Suicide.
 func (s *StateDB) Suicide(addr common.Address) bool {
 	stateObject := s.getStateObject(addr)
+	// every time set code in DB. regenerate the optimized code in code cache.
+	compiler.GetOpcodeProcessorInstance().FlushCodeCache(addr)
 	if stateObject == nil {
 		return false
 	}

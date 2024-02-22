@@ -82,6 +82,11 @@ func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []
 	return processedCode, hit, err
 }
 
+func (p *OpcodeProcessor) FlushCodeCache(addr common.Address) {
+	// flush in case there are invalid cached code.
+	GetOpCodeCacheInstance().RemoveCachedCode(addr)
+}
+
 func processByteCodes(code []byte) (OptCode, error) {
 	return doOpcodesProcess(code)
 }
