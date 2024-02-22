@@ -193,6 +193,9 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
 		operation := in.table[op]
+
+		getOpTime := time.Now()
+
 		cost = operation.constantGas // For tracing
 		// Validate stack
 		if sLen := stack.len(); sLen < operation.minStack {
@@ -241,18 +244,24 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.evm.Config.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
-		opcodeGasCalDur := time.Since(opcodeBegin)
+
+		opcodeGasCalTime := time.Now()
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)
 		if err != nil {
 			break
 		}
 		pc++
-		opcodeDur := time.Since(opcodeBegin)
-		opcodeExecDur := opcodeDur - opcodeGasCalDur
+		opcodeExecTime := time.Now()
+
+		getOpDuration := getOpTime.Sub(opcodeBegin)
+		gasCalDur := opcodeGasCalTime.Sub(getOpTime)
+		execDur := opcodeExecTime.Sub(opcodeGasCalTime)
+		opcodeDur := opcodeExecTime.Sub(opcodeBegin)
 		log.Info("Inside Interpreter (gasps)", "depth", in.evm.depth, "opcode", op.String(),
-			"runTime", common.PrettyDuration(opcodeDur), "gasCalTime", common.PrettyDuration(opcodeGasCalDur),
-			"exeTime", common.PrettyDuration(opcodeExecDur))
+			"runTime", common.PrettyDuration(opcodeDur), "getOpDur", common.PrettyDuration(getOpDuration),
+			"gasCalTime", common.PrettyDuration(gasCalDur),
+			"exeTime", common.PrettyDuration(execDur))
 	}
 
 	if err == errStopToken {
