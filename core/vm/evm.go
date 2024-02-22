@@ -497,6 +497,7 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 
 	if len(code) == 0 {
 		code = evm.StateDB.GetCode(addrCopy)
+		code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code)
 	}
 
 	if evm.Context.BlockNumber.Uint64() == uint64(455082) {
