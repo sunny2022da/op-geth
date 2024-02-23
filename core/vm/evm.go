@@ -18,13 +18,10 @@ package vm
 
 import (
 	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/holiman/uint256"
 	"math/big"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	"github.com/holiman/uint256"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -195,7 +192,6 @@ func (evm *EVM) SetBlockContext(blockCtx BlockContext) {
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
 func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
-	log.Info("Inside Interpreter (gasps) CALL", "depth", evm.depth, "from", caller.Address().String(), "addr", addr.String())
 	// Fail if we're trying to execute above the call depth limit
 	if evm.depth > int(params.CallCreateDepth) {
 		return nil, gas, ErrDepth
@@ -245,8 +241,6 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	if isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
 	} else {
-		getCodeBegin := time.Now()
-
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		// try get from cache
@@ -259,18 +253,9 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// If the account has no code, we can abort here
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
-
 			contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
-
 			contract.optimized = optimized
-
-			getCodeTime := time.Since(getCodeBegin)
-
 			ret, err = evm.interpreter.Run(contract, input, false)
-
-			interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-			log.Info("Inside Interpreter (gasps) CALL", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
-
 			gas = contract.Gas
 		}
 	}
@@ -297,8 +282,6 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 // CallCode differs from Call in the sense that it executes the given address'
 // code with the caller as context.
 func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
-	log.Info("Inside Interpreter (gasps) CALLCODE", "depth", evm.depth, "from", caller.Address().String(), "addr", addr.String())
-
 	// Fail if we're trying to execute above the call depth limit
 	if evm.depth > int(params.CallCreateDepth) {
 		return nil, gas, ErrDepth
@@ -324,7 +307,6 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 	if p, isPrecompile := evm.precompile(addr); isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
 	} else {
-		getCodeBegin := time.Now()
 		addrCopy := addr
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
@@ -334,14 +316,7 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 
 		contract.optimized = optimized
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
-
-		getCodeTime := time.Since(getCodeBegin)
-
 		ret, err = evm.interpreter.Run(contract, input, false)
-
-		interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-		log.Info("Inside Interpreter (gasps) CALLCODE", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
-
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -359,8 +334,6 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 // DelegateCall differs from CallCode in the sense that it executes the given address'
 // code with the caller as context and the caller is set to the caller of the caller.
 func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error) {
-	log.Info("Inside Interpreter (gasps) DELEGATECALL", "depth", evm.depth, "from", caller.Address().String(), "addr", addr.String())
-
 	// Fail if we're trying to execute above the call depth limit
 	if evm.depth > int(params.CallCreateDepth) {
 		return nil, gas, ErrDepth
@@ -383,24 +356,14 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 	if p, isPrecompile := evm.precompile(addr); isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
 	} else {
-		getCodeBegin := time.Now()
 		addrCopy := addr
 		// Initialise a new contract and make initialise the delegate values
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
-
 		// try get from cache
 		optimized, code := tryGetOptimizedCode(evm, addrCopy)
-
 		contract.optimized = optimized
-
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
-
-		getCodeTime := time.Since(getCodeBegin)
-
 		ret, err = evm.interpreter.Run(contract, input, false)
-
-		interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-		log.Info("Inside Interpreter (gasps) DELEGATECALL ", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -417,7 +380,6 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 // Opcodes that attempt to perform such modifications will result in exceptions
 // instead of performing the modifications.
 func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error) {
-	log.Info("Inside Interpreter (gasps) STATICCALL", "depth", evm.depth, "from", caller.Address().String(), "addr", addr.String())
 
 	// Fail if we're trying to execute above the call depth limit
 	if evm.depth > int(params.CallCreateDepth) {
@@ -447,7 +409,6 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	if p, isPrecompile := evm.precompile(addr); isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas)
 	} else {
-		getCodeBegin := time.Now()
 		// At this point, we use a copy of address. If we don't, the go compiler will
 		// leak the 'contract' to the outer scope, and make allocation for 'contract'
 		// even if the actual execution ends on RunPrecompiled above.
@@ -455,24 +416,14 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
-
 		// try get from cache
 		optimized, code := tryGetOptimizedCode(evm, addrCopy)
-
 		contract.optimized = optimized
-
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
-
-		getCodeTime := time.Since(getCodeBegin)
-
 		// When an error was returned by the EVM or when setting the creation code
 		// above we revert to the snapshot and consume any gas remaining. Additionally
 		// when we're in Homestead this also counts for code storage gas errors.
 		ret, err = evm.interpreter.Run(contract, input, true)
-
-		interpreterRunTime := time.Since(getCodeBegin) - getCodeTime
-		log.Info("Inside Interpreter (gasps) STATIC ", "depth", evm.depth, "getCodeDuration", common.PrettyDuration(getCodeTime), "RunDuration", common.PrettyDuration(interpreterRunTime), "cacheHit", optimized)
-
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -494,7 +445,6 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 			optimized = true
 		}
 	}
-
 	if len(code) == 0 {
 		code = evm.StateDB.GetCode(addrCopy)
 
@@ -505,15 +455,6 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 			}
 		}
 	}
-
-	if evm.Context.BlockNumber.Uint64() == uint64(2652045) {
-		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "address", addrCopy, "hit", optimized)
-		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "original hash", evm.StateDB.GetCodeHash(addrCopy), "original code:", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
-		if optimized {
-			log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "optimized HASH:", crypto.Keccak256Hash(code), "optimized code::", common.Bytes2Hex(code))
-		}
-	}
-
 	return optimized, code
 }
 
@@ -531,8 +472,6 @@ func (c *codeAndHash) Hash() common.Hash {
 
 // create creates a new contract using code as deployment code.
 func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64, value *big.Int, address common.Address, typ OpCode) ([]byte, common.Address, uint64, error) {
-	log.Info("Inside Interpreter (gasps) CREATE", "depth", evm.depth, "from", caller.Address().String())
-
 	// Depth check execution. Fail if we're trying to execute above the
 	// limit.
 	if evm.depth > int(params.CallCreateDepth) {
@@ -577,12 +516,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 			evm.Config.Tracer.CaptureEnter(typ, caller.Address(), address, codeAndHash.code, gas, value)
 		}
 	}
-
-	execBegin := time.Now()
 	ret, err := evm.interpreter.Run(contract, nil, false)
-	interpreterRunTime := time.Since(execBegin)
-	log.Info("Inside Interpreter (gasps) CREATE ", "depth", evm.depth, "RunDuration", common.PrettyDuration(interpreterRunTime))
-
 	// Check whether the max code size has been exceeded, assign err if the case.
 	if err == nil && evm.chainRules.IsEIP158 && len(ret) > params.MaxCodeSize {
 		err = ErrMaxCodeSizeExceeded

@@ -131,8 +131,6 @@ func getOpCodeCacheInstance() *OpCodeCache {
 				}
 			}
 		}()
-
-		// opcodeCache.UpdateCodeCache(preInstalledAddr, preInstalledCode)
 	})
 	return opcodeCache
 }

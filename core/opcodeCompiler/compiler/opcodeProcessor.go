@@ -362,7 +362,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			continue
 		}
 	}
-	//return code, nil
 	return fusedCode, nil
 }
 
