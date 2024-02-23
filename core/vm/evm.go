@@ -500,11 +500,11 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 		code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code)
 	}
 
-	if evm.Context.BlockNumber.Uint64() == uint64(455082) {
+	if evm.Context.BlockNumber.Uint64() == uint64(608822) {
 		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "address", addrCopy, "hit", optimized)
-		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "original code::", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
+		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "original hash", evm.StateDB.GetCodeHash(addrCopy), "original code:", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
 		if optimized {
-			log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "optimized code::", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
+			log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "optimized HASH:", crypto.Keccak256Hash(code), "optimized code::", common.Bytes2Hex(code))
 		}
 	}
 

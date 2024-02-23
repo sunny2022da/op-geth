@@ -75,6 +75,7 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) erro
 	c.opcodesCache[address] = code
 	c.codeCacheSize += uint64(len(code))
 	c.codeCacheMutex.Unlock()
+
 	return nil
 }
 
