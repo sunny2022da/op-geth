@@ -1101,7 +1101,7 @@ func TestRuntimeJSTracerWithOpcodeOptimizer(t *testing.T) {
 					Tracer:                    tracer,
 					EnableOpcodeOptimizations: true,
 				}})
-			compiler.GetOpCodeCacheInstance().RemoveCachedCode(main)
+			compiler.GetOpcodeProcessorInstance().FlushCodeCache(main, nil)
 			if err != nil {
 				t.Fatal("didn't expect error", err)
 			}

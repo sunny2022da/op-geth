@@ -11,6 +11,7 @@ import (
 type CodeType uint8
 
 var ErrFailPreprocessing = errors.New("fail to do preprocessing")
+var ErrOptiDisabled = errors.New("Opcode optimization is disabled")
 
 var initOnce sync.Once
 var opcodeProcessor *OpcodeProcessor
@@ -36,45 +37,60 @@ func GetOpcodeProcessorInstance() *OpcodeProcessor {
 
 func (p *OpcodeProcessor) EnableOptimization() {
 	p.enabled = true
-	p.codeCache = GetOpCodeCacheInstance()
+	p.codeCache = getOpCodeCacheInstance()
 }
 
 func (p *OpcodeProcessor) DisableOptimization() {
 	p.enabled = false
 }
 
-func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte) {
+func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte, hash common.Hash) {
 	if p.enabled {
-		p.GenOrRewriteOptimizedCode(address, code)
-	} else {
-		// flush in case there are invalid cached code.
-		GetOpCodeCacheInstance().RemoveCachedCode(address)
+		p.FlushCodeCache(address, nil)
+		p.GenOrRewriteOptimizedCode(address, code, hash)
 	}
 }
 
 // GenOrRewriteOptimizedCode generate the optimized code and refresh the codecache.
-func (p *OpcodeProcessor) GenOrRewriteOptimizedCode(address common.Address, code []byte) (OptCode, error) {
+func (p *OpcodeProcessor) GenOrRewriteOptimizedCode(address common.Address, code []byte, hash common.Hash) (OptCode, error) {
+	if !p.enabled {
+		return nil, ErrOptiDisabled
+	}
 	processedCode, err := processByteCodes(code)
 	if err != nil {
 		log.Error("Can not generate optimized code: %s\n", err.Error())
 		return nil, err
 	}
 	codeCache := p.codeCache
-	err = codeCache.UpdateCodeCache(address, processedCode)
+	err = codeCache.UpdateCodeCache(address, processedCode, hash)
 	if err != nil {
 		log.Error("Not update code cache", "err", err)
 	}
 	return processedCode, err
 }
 
-func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []byte) (OptCode, bool, error) {
+func (p *OpcodeProcessor) LoadOptimizedCode(address common.Address, hash common.Hash) OptCode {
+	if !p.enabled {
+		return nil
+	}
 	/* Try load from cache */
 	codeCache := p.codeCache
-	processedCode := codeCache.GetCachedCode(address)
+	processedCode := codeCache.GetCachedCode(address, hash)
+	return processedCode
+
+}
+
+func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []byte, hash common.Hash) (OptCode, bool, error) {
+	if !p.enabled {
+		return nil, false, ErrOptiDisabled
+	}
+	/* Try load from cache */
+	codeCache := p.codeCache
+	processedCode := codeCache.GetCachedCode(address, hash)
 	hit := false
 	var err error = nil
 	if processedCode == nil || len(processedCode) == 0 {
-		processedCode, err = p.GenOrRewriteOptimizedCode(address, code)
+		processedCode, err = p.GenOrRewriteOptimizedCode(address, code, hash)
 		hit = false
 	} else {
 		hit = true
@@ -82,9 +98,21 @@ func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []
 	return processedCode, hit, err
 }
 
-func (p *OpcodeProcessor) FlushCodeCache(addr common.Address) {
-	// flush in case there are invalid cached code.
-	GetOpCodeCacheInstance().RemoveCachedCode(addr)
+func (p *OpcodeProcessor) FlushCodeCache(addr common.Address, hashBytes []byte) {
+	if !p.enabled {
+		return
+	}
+	// flush in case there are invalid cached code
+	p.codeCache.RemoveCachedCode(addr, common.BytesToHash(hashBytes))
+}
+
+func (p *OpcodeProcessor) GetValFromShlAndSubMap(x byte, y byte, z byte) *uint256.Int {
+	if !p.enabled {
+		return nil
+	}
+	codeCache := p.codeCache
+	result := codeCache.GetValFromShlAndSubMap(x, y, z)
+	return result
 }
 
 func processByteCodes(code []byte) (OptCode, error) {
@@ -134,7 +162,7 @@ func doCodeFusion(code []byte) ([]byte, error) {
 				// todo-dav: replace with push32.
 				op := ShlAndSub
 				fusedCode[cur] = byte(op)
-				codeCache := GetOpCodeCacheInstance()
+				codeCache := GetOpcodeProcessorInstance().codeCache
 				codeCache.CacheShlAndSubMap(x, y, z, val)
 
 				// now add three operands in code.
@@ -333,10 +361,9 @@ func doCodeFusion(code []byte) ([]byte, error) {
 			i += steps
 			continue
 		}
-
 	}
-	return code, nil
-	//return fusedCode, nil
+	//return code, nil
+	return fusedCode, nil
 }
 
 func calculateSkipSteps(code []byte, cur int) (skip bool, steps int) {

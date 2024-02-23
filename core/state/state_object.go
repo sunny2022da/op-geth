@@ -515,7 +515,7 @@ func (s *stateObject) setCode(codeHash common.Hash, code []byte) {
 	s.code = code
 	s.data.CodeHash = codeHash[:]
 	s.dirtyCode = true
-	compiler.GetOpcodeProcessorInstance().RewriteOptimizedCodeForDB(s.address, code)
+	compiler.GetOpcodeProcessorInstance().RewriteOptimizedCodeForDB(s.address, code, codeHash)
 }
 
 func (s *stateObject) SetNonce(nonce uint64) {

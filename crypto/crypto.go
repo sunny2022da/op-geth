@@ -146,7 +146,7 @@ func CreateAddress(b common.Address, nonce uint64) common.Address {
 // contract code hash and a salt.
 func CreateAddress2(b common.Address, salt [32]byte, inithash []byte) common.Address {
 	addr := common.BytesToAddress(Keccak256([]byte{0xff}, b.Bytes(), salt[:], inithash)[12:])
-	compiler.GetOpCodeCacheInstance().RemoveCachedCode(addr)
+	compiler.GetOpcodeProcessorInstance().FlushCodeCache(addr, nil)
 	return addr
 }
 

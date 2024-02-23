@@ -180,10 +180,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	}
 
 	printInstr := false
-	if in.evm.Context.BlockNumber.Uint64() == uint64(455082) {
+	/*if in.evm.Context.BlockNumber.Uint64() == uint64(455082) {
 		printInstr = true
 		log.Info("Inside Interpreter (gasps)", "=======codeAddr ", contract.CodeAddr.String(), "=========", "")
-	}
+	}*/
 
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during

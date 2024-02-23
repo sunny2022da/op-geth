@@ -487,9 +487,9 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 	optimized := false
 	var code []byte
-	if evm.Config.EnableOpcodeOptimizations {
-		codeCache := compiler.GetOpCodeCacheInstance()
-		code = codeCache.GetCachedCode(addrCopy)
+	codeHash := evm.StateDB.GetCodeHash(addrCopy)
+	if evm.Config.EnableOpcodeOptimizations && codeHash != (common.Hash{}) && codeHash != types.EmptyCodeHash {
+		code = compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
 		if len(code) != 0 {
 			optimized = true
 		}
@@ -497,16 +497,19 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 
 	if len(code) == 0 {
 		code = evm.StateDB.GetCode(addrCopy)
-		code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code)
+
+		if evm.Config.EnableOpcodeOptimizations {
+			code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code, codeHash)
+		}
 	}
 
-	if evm.Context.BlockNumber.Uint64() == uint64(608822) {
+	/*if evm.Context.BlockNumber.Uint64() == uint64(608822) {
 		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "address", addrCopy, "hit", optimized)
 		log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "original hash", evm.StateDB.GetCodeHash(addrCopy), "original code:", common.Bytes2Hex(evm.StateDB.GetCode(addrCopy)))
 		if optimized {
 			log.Warn("======= gasps ======", "block", evm.Context.BlockNumber.Uint64(), "optimized HASH:", crypto.Keccak256Hash(code), "optimized code::", common.Bytes2Hex(code))
 		}
-	}
+	}*/
 
 	return optimized, code
 }

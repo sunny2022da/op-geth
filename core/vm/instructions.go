@@ -833,9 +833,6 @@ func opSelfdestruct(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext
 	balance := interpreter.evm.StateDB.GetBalance(scope.Contract.Address())
 	interpreter.evm.StateDB.AddBalance(beneficiary.Bytes20(), balance)
 	interpreter.evm.StateDB.Suicide(scope.Contract.Address())
-	if interpreter.evm.Config.EnableOpcodeOptimizations {
-		compiler.GetOpCodeCacheInstance().RemoveCachedCode(scope.Contract.Address())
-	}
 	if interpreter.evm.Config.Debug {
 		interpreter.evm.Config.Tracer.CaptureEnter(SELFDESTRUCT, scope.Contract.Address(), beneficiary.Bytes20(), []byte{}, 0, balance)
 		interpreter.evm.Config.Tracer.CaptureExit([]byte{}, 0, nil)
@@ -939,8 +936,7 @@ func opShlAndSub(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 	y := scope.Contract.Code[*pc+2]
 	z := scope.Contract.Code[*pc+3]
 
-	codeCache := compiler.GetOpCodeCacheInstance()
-	result := codeCache.GetValFromShlAndSubMap(x, y, z)
+	result := compiler.GetOpcodeProcessorInstance().GetValFromShlAndSubMap(x, y, z)
 	if result != nil {
 		result = uint256.NewInt(uint64(y))
 		result.Lsh(result, uint(z))

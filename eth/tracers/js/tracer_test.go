@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
+	"github.com/ethereum/go-ethereum/crypto"
 	"math/big"
 	"strings"
 	"testing"
@@ -84,8 +85,8 @@ func runTraceWithOption(tracer tracers.Tracer, vmctx *vmContext, chaincfg *param
 
 	if enableOpti {
 		// reset the code also require flush code cache.
-		compiler.GetOpCodeCacheInstance().RemoveCachedCode(contract.Address())
-		optimized, _, _ := compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(contract.Address(), contract.Code)
+		compiler.GetOpcodeProcessorInstance().FlushCodeCache(contract.Address(), nil)
+		optimized, _, _ := compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(contract.Address(), contract.Code, crypto.Keccak256Hash(contract.Code))
 		contract.Code = optimized
 	}
 
