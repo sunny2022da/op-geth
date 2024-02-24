@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 	"os"
+	"os/signal"
 	"sync"
 	"syscall"
 )
@@ -119,7 +120,7 @@ func getOpCodeCacheInstance() *OpCodeCache {
 
 		// Handle Sigusr2 signal
 		sigCh := make(chan os.Signal, 1)
-
+		signal.Notify(sigCh, syscall.SIGUSR2)
 		go func() {
 			for { // Infinite loop to wait for signals
 				signal := <-sigCh
@@ -136,6 +137,7 @@ func getOpCodeCacheInstance() *OpCodeCache {
 }
 
 func dumpJSON(codeCache map[common.Address]map[common.Hash]OptCode) {
+	filename := "codecache.json"
 	// Marshal data to JSON
 	jsonData, err := json.MarshalIndent(codeCache, "", "  ")
 	if err != nil {
@@ -147,8 +149,9 @@ func dumpJSON(codeCache map[common.Address]map[common.Hash]OptCode) {
 	//fmt.Println("Data JSON:")
 	// fmt.Println(string(jsonData))
 
+	log.Info("OpcodeCache Dump:", "File", filename)
 	// Optional: write JSON to file
-	err = writeToFile("codecache.json", jsonData)
+	err = writeToFile(filename, jsonData)
 	if err != nil {
 		log.Error("Error writing JSON file:", "err", err)
 	}
