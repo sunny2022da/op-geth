@@ -22,7 +22,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"sync"
-	"time"
 )
 
 // EVMInterpreterPool is a pool of EVMInterpreter instances
@@ -179,18 +178,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}()
 	}
 
-	printInstr := false
-	if in.evm.Context.BlockNumber.Uint64() == uint64(2652045) {
-		printInstr = true
-		log.Info("Inside Interpreter (gasps)", "=======codeAddr ", contract.CodeAddr.String(), "=========", "")
-	}
-
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
 	// parent context.
 	for {
-		opcodeBegin := time.Now()
 		if in.evm.Config.Debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
@@ -199,9 +191,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
 		operation := in.table[op]
-
-		getOpTime := time.Now()
-
 		cost = operation.constantGas // For tracing
 		// Validate stack
 		if sLen := stack.len(); sLen < operation.minStack {
@@ -251,28 +240,13 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			logged = true
 		}
 
-		opcodeGasCalTime := time.Now()
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)
 		if err != nil {
 			break
 		}
 		pc++
-		opcodeExecTime := time.Now()
-
-		getOpDuration := getOpTime.Sub(opcodeBegin)
-		gasCalDur := opcodeGasCalTime.Sub(getOpTime)
-		execDur := opcodeExecTime.Sub(opcodeGasCalTime)
-		opcodeDur := opcodeExecTime.Sub(opcodeBegin)
-		if printInstr {
-			log.Info("Inside Interpreter (gasps)", "depth", in.evm.depth, "opcode", op.String(),
-				"runTime", common.PrettyDuration(opcodeDur), "getOpDur", common.PrettyDuration(getOpDuration),
-				"gasCalTime", common.PrettyDuration(gasCalDur),
-				"exeTime", common.PrettyDuration(execDur))
-		}
 	}
-
-	printInstr = false
 
 	if err == errStopToken {
 		err = nil // clear stop token error
