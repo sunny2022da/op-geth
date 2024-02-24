@@ -85,8 +85,8 @@ func runTraceWithOption(tracer tracers.Tracer, vmctx *vmContext, chaincfg *param
 
 	if enableOpti {
 		// reset the code also require flush code cache.
-		compiler.GetOpcodeProcessorInstance().FlushCodeCache(contract.Address(), nil)
-		optimized, _, _ := compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(contract.Address(), contract.Code, crypto.Keccak256Hash(contract.Code))
+		compiler.GetOpcodeProcessorInstance().FlushCodeCache(contract.Address(), common.Hash{})
+		optimized, _ := compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(contract.Address(), contract.Code, crypto.Keccak256Hash(contract.Code))
 		contract.Code = optimized
 	}
 

@@ -5,6 +5,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
+	"runtime"
 	"sync"
 )
 
@@ -16,20 +17,45 @@ var ErrOptiDisabled = errors.New("Opcode optimization is disabled")
 var initOnce sync.Once
 var opcodeProcessor *OpcodeProcessor
 
+const taskChannelSize = 1024 * 1024
+
 type OpcodeProcessor struct {
-	enabled   bool
-	codeCache *OpCodeCache
+	enabled     bool
+	codeCache   *OpCodeCache
+	taskChannel chan optimizeTask
 }
 
 type OpCodeProcessorConfig struct {
 	DoOpcodeFusion bool
 }
 
+type optimizeTaskType byte
+
+const (
+	unknown  optimizeTaskType = 0
+	generate optimizeTaskType = 1
+	flush    optimizeTaskType = 2
+)
+
+type optimizeTask struct {
+	taskType optimizeTaskType
+	addr     common.Address
+	codeHash common.Hash
+	rawCode  []byte
+}
+
 func GetOpcodeProcessorInstance() *OpcodeProcessor {
 	initOnce.Do(func() {
 		opcodeProcessor = &OpcodeProcessor{
-			enabled:   false,
-			codeCache: nil,
+			enabled:     false,
+			codeCache:   nil,
+			taskChannel: make(chan optimizeTask, taskChannelSize),
+		}
+		// start task processors.
+		taskNumber := max(runtime.NumCPU()*3/8, 1)
+
+		for i := 0; i < taskNumber; i++ {
+			go opcodeProcessor.taskProcessor()
 		}
 	})
 	return opcodeProcessor
@@ -44,9 +70,51 @@ func (p *OpcodeProcessor) DisableOptimization() {
 	p.enabled = false
 }
 
+// Producer functions
+func (p *OpcodeProcessor) LoadOptimizedCode(address common.Address, hash common.Hash) OptCode {
+	if !p.enabled {
+		return nil
+	}
+	/* Try load from cache */
+	codeCache := p.codeCache
+	processedCode := codeCache.GetCachedCode(address, hash)
+	return processedCode
+
+}
+
+func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []byte, hash common.Hash) {
+	task := optimizeTask{generate, address, hash, code}
+	p.taskChannel <- task
+}
+
+func (p *OpcodeProcessor) FlushCodeCache(address common.Address, hash common.Hash) {
+	task := optimizeTask{flush, address, hash, nil}
+	p.taskChannel <- task
+}
+
+// Consumer function
+func (p *OpcodeProcessor) taskProcessor() {
+	for {
+		task := <-p.taskChannel
+		// Process the message here
+		p.handleOptimizationTask(task)
+	}
+}
+
+func (p *OpcodeProcessor) handleOptimizationTask(task optimizeTask) {
+	switch task.taskType {
+	case generate:
+		p.TryGenerateOptimizedCode(task.addr, task.rawCode, task.codeHash)
+	case flush:
+		p.DeleteCodeCache(task.addr, task.codeHash)
+	}
+}
+
+// message producer.
 func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte, hash common.Hash) {
 	if p.enabled {
-		p.FlushCodeCache(address, nil)
+		// TODO. may not need this if memory is enough
+		p.FlushCodeCache(address, hash)
 		p.GenOrRewriteOptimizedCode(address, code, hash)
 	}
 }
@@ -69,18 +137,7 @@ func (p *OpcodeProcessor) GenOrRewriteOptimizedCode(address common.Address, code
 	return processedCode, err
 }
 
-func (p *OpcodeProcessor) LoadOptimizedCode(address common.Address, hash common.Hash) OptCode {
-	if !p.enabled {
-		return nil
-	}
-	/* Try load from cache */
-	codeCache := p.codeCache
-	processedCode := codeCache.GetCachedCode(address, hash)
-	return processedCode
-
-}
-
-func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []byte, hash common.Hash) (OptCode, bool, error) {
+func (p *OpcodeProcessor) TryGenerateOptimizedCode(address common.Address, code []byte, hash common.Hash) (OptCode, bool, error) {
 	if !p.enabled {
 		return nil, false, ErrOptiDisabled
 	}
@@ -98,12 +155,12 @@ func (p *OpcodeProcessor) GenOrLoadOptimizedCode(address common.Address, code []
 	return processedCode, hit, err
 }
 
-func (p *OpcodeProcessor) FlushCodeCache(addr common.Address, hashBytes []byte) {
+func (p *OpcodeProcessor) DeleteCodeCache(addr common.Address, hash common.Hash) {
 	if !p.enabled {
 		return
 	}
 	// flush in case there are invalid cached code
-	p.codeCache.RemoveCachedCode(addr, common.BytesToHash(hashBytes))
+	p.codeCache.RemoveCachedCode(addr, hash)
 }
 
 func (p *OpcodeProcessor) GetValFromShlAndSubMap(x byte, y byte, z byte) *uint256.Int {

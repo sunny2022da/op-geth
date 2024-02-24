@@ -436,22 +436,29 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 }
 
 func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
-	optimized := false
-	var code []byte
-	codeHash := evm.StateDB.GetCodeHash(addrCopy)
-	if evm.Config.EnableOpcodeOptimizations && codeHash != (common.Hash{}) && codeHash != types.EmptyCodeHash {
-		code = compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
-		if len(code) != 0 {
-			optimized = true
-		}
-	}
-	if len(code) == 0 {
-		code = evm.StateDB.GetCode(addrCopy)
 
-		if evm.Config.EnableOpcodeOptimizations {
-			code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code, codeHash)
-			if len(code) > 0 {
+	var code []byte
+	// In case the code is not in stateDB. skip the optimization
+	// TODO - this is a must to avoid the case that code has required to be delete but not yet processed by the codecache,
+	// but at the same some other tx (afterward but processed before request of deletion) are processed by code cache.
+	// Another way is to identify all possible way for code delete in stateDB, and to invalid any opti request related to
+	// the contract, which is complicated so maybe considered when GetCode here is heavy.
+	code = evm.StateDB.GetCode(addrCopy)
+	if len(code) == 0 {
+		return false, nil
+	}
+	optimized := false
+	if evm.Config.EnableOpcodeOptimizations {
+		codeHash := evm.StateDB.GetCodeHash(addrCopy)
+		if codeHash != (common.Hash{}) {
+			code = compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
+			if len(code) != 0 {
 				optimized = true
+			} else {
+				code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code, codeHash)
+				if len(code) > 0 {
+					optimized = true
+				}
 			}
 		}
 	}

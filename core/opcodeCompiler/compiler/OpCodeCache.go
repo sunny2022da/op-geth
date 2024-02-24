@@ -51,7 +51,7 @@ func (c *OpCodeCache) RemoveCachedCode(address common.Address, hash common.Hash)
 		c.codeCacheMutex.Unlock()
 		return
 	}
-	if hash == common.BytesToHash(nil) {
+	if hash == (common.Hash{}) {
 		_, ok := c.opcodesCache[address]
 		if ok {
 			delete(c.opcodesCache, address)
