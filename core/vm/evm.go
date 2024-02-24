@@ -436,7 +436,6 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 }
 
 func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
-
 	var code []byte
 	// In case the code is not in stateDB. skip the optimization
 	// TODO - this is a must to avoid the case that code has required to be delete but not yet processed by the codecache,
@@ -451,14 +450,12 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 	if evm.Config.EnableOpcodeOptimizations {
 		codeHash := evm.StateDB.GetCodeHash(addrCopy)
 		if codeHash != (common.Hash{}) {
-			code = compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
-			if len(code) != 0 {
+			optCode := compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
+			if len(optCode) != 0 {
+				code = optCode
 				optimized = true
 			} else {
-				code, _ = compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(addrCopy, code, codeHash)
-				if len(code) > 0 {
-					optimized = true
-				}
+				compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code, codeHash)
 			}
 		}
 	}

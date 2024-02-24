@@ -62,6 +62,9 @@ func GetOpcodeProcessorInstance() *OpcodeProcessor {
 }
 
 func (p *OpcodeProcessor) EnableOptimization() {
+	if p.enabled {
+		return
+	}
 	p.enabled = true
 	p.codeCache = getOpCodeCacheInstance()
 }
@@ -92,6 +95,14 @@ func (p *OpcodeProcessor) FlushCodeCache(address common.Address, hash common.Has
 	p.taskChannel <- task
 }
 
+func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte, hash common.Hash) {
+	if p.enabled {
+		// p.GenOrRewriteOptimizedCode(address, code, hash)
+		//
+		p.GenOrLoadOptimizedCode(address, code, hash)
+	}
+}
+
 // Consumer function
 func (p *OpcodeProcessor) taskProcessor() {
 	for {
@@ -107,15 +118,6 @@ func (p *OpcodeProcessor) handleOptimizationTask(task optimizeTask) {
 		p.TryGenerateOptimizedCode(task.addr, task.rawCode, task.codeHash)
 	case flush:
 		p.DeleteCodeCache(task.addr, task.codeHash)
-	}
-}
-
-// message producer.
-func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte, hash common.Hash) {
-	if p.enabled {
-		// TODO. may not need this if memory is enough
-		p.FlushCodeCache(address, hash)
-		p.GenOrRewriteOptimizedCode(address, code, hash)
 	}
 }
 

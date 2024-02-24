@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	compiler2 "github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"io"
 	"math/big"
 	"os"
@@ -219,6 +220,9 @@ func runCmd(ctx *cli.Context) error {
 		},
 	}
 
+	if runtimeConfig.EVMConfig.EnableOpcodeOptimizations {
+		compiler2.GetOpcodeProcessorInstance().EnableOptimization()
+	}
 	if cpuProfilePath := ctx.String(CPUProfileFlag.Name); cpuProfilePath != "" {
 		f, err := os.Create(cpuProfilePath)
 		if err != nil {
