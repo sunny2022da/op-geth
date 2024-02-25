@@ -222,7 +222,7 @@ func doCodeFusion(code []byte) ([]byte, error) {
 				op := ShlAndSub
 				fusedCode[cur] = byte(op)
 				codeCache := GetOpcodeProcessorInstance().codeCache
-				codeCache.CacheShlAndSubMap(x, y, z, val)
+				codeCache.CacheShlAndSubMap(x, y, z, *val)
 
 				// now add three operands in code.
 				fusedCode[cur+1], fusedCode[cur+2], fusedCode[cur+3] = x, y, z
