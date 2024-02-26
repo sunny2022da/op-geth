@@ -207,7 +207,6 @@ const (
 // 0xd0 range - customized instructions.
 const (
 	Nop OpCode = 0xd0 + iota
-	ShlAndSub
 	AndSwap1PopSwap2Swap1
 	Swap2Swap1PopJump
 	Swap1PopSwap2Swap1
@@ -408,7 +407,6 @@ var opCodeToString = map[OpCode]string{
 
 	// 0xd0 range.
 	Nop:                   "NOP",
-	ShlAndSub:             "SHLANDSUB",
 	AndSwap1PopSwap2Swap1: "ANDSWAP1POPSWAP2SWAP1",
 	Swap2Swap1PopJump:     "SWAP2SWAP1POPJUMP",
 	Swap1PopSwap2Swap1:    "SWAP1POPSWAP2SWAP1",

@@ -184,7 +184,6 @@ const (
 // 0xd0 range - customized instructions.
 const (
 	Nop ByteCode = 0xd0 + iota
-	ShlAndSub
 	AndSwap1PopSwap2Swap1
 	Swap2Swap1PopJump
 	Swap1PopSwap2Swap1

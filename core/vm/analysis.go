@@ -129,10 +129,6 @@ func codeBitmapForSI(code []byte, pc uint64, op OpCode, bits *bitvec) (step uint
 	// pc points to the data pointer for push, or the next op for opcode
 	// bits marks the data bytes pointed by [pc]
 	switch op {
-	case ShlAndSub:
-		bits.setN(set3BitsMask, pc)
-		step = 7
-		processed = true
 	case Push2Jump, Push2JumpI:
 		bits.setN(set2BitsMask, pc)
 		step = 3

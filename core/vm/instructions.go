@@ -18,7 +18,6 @@ package vm
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -926,26 +925,6 @@ func makeSwap(size int64) executionFunc {
 		scope.Stack.swap(int(size))
 		return nil, nil
 	}
-}
-
-// fused instructions
-// opShlAndSub implements the fused instruction of shl and then sub.
-// The ShlAndSub read 3 values and check the cache
-func opShlAndSub(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	x := scope.Contract.Code[*pc+1]
-	y := scope.Contract.Code[*pc+2]
-	z := scope.Contract.Code[*pc+3]
-
-	result := compiler.GetOpcodeProcessorInstance().GetValFromShlAndSubMap(x, y, z)
-	if result != nil {
-		result = uint256.NewInt(uint64(y))
-		result.Lsh(result, uint(z))
-		result.Sub(result, uint256.NewInt(uint64(x)))
-	}
-
-	scope.Stack.push(result)
-	*pc += 7
-	return nil, nil
 }
 
 // fused instructions

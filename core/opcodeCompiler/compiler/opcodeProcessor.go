@@ -165,15 +165,6 @@ func (p *OpcodeProcessor) DeleteCodeCache(addr common.Address, hash common.Hash)
 	p.codeCache.RemoveCachedCode(addr, hash)
 }
 
-func (p *OpcodeProcessor) GetValFromShlAndSubMap(x byte, y byte, z byte) *uint256.Int {
-	if !p.enabled {
-		return nil
-	}
-	codeCache := p.codeCache
-	result := codeCache.GetValFromShlAndSubMap(x, y, z)
-	return result
-}
-
 func processByteCodes(code []byte) (OptCode, error) {
 	return doOpcodesProcess(code)
 }
@@ -193,47 +184,6 @@ func doCodeFusion(code []byte) ([]byte, error) {
 	for i := 0; i < length; i++ {
 		cur := i
 		skipToNext = false
-
-		if length > cur+7 {
-			code0 := ByteCode(fusedCode[cur+0])
-			code1 := ByteCode(fusedCode[cur+1])
-			code2 := ByteCode(fusedCode[cur+2])
-			code3 := ByteCode(fusedCode[cur+3])
-			code4 := ByteCode(fusedCode[cur+4])
-			code5 := ByteCode(fusedCode[cur+5])
-			code6 := ByteCode(fusedCode[cur+6])
-			code7 := ByteCode(fusedCode[cur+7])
-			// shift and then sub - this is mostly used to generate a 160bit addr from 256bit value.
-			// The following 7 bytes are usually used to generate the bit mast of 150 bits of 1s
-			// TODO-dav: more specifically, testing the arguments are 0x1, 0x1 and 0xa0, and then these can be
-			// simplified to single push20 0xff...f
-			if code0 == PUSH1 && code2 == PUSH1 && code4 == PUSH1 && code6 == SHL && code7 == SUB {
-				x := uint8(code1)
-				y := uint8(code3)
-				z := uint8(code5)
-				// (y<<z) - x
-				val := uint256.NewInt(uint64(y))
-				val.Lsh(val, uint(z))
-				val.Sub(val, uint256.NewInt(uint64(x)))
-
-				// update the code.
-				// ShlAndSub is actually worked like pushed an uint256,
-				// todo-dav: replace with push32.
-				op := ShlAndSub
-				fusedCode[cur] = byte(op)
-				codeCache := GetOpcodeProcessorInstance().codeCache
-				codeCache.CacheShlAndSubMap(x, y, z, *val)
-
-				// now add three operands in code.
-				fusedCode[cur+1], fusedCode[cur+2], fusedCode[cur+3] = x, y, z
-				// fill reminders as nop
-				for j := 4; j < 8; j++ {
-					fusedCode[cur+j] = byte(Nop)
-				}
-				i += 7
-				continue
-			}
-		}
 
 		if length > cur+4 {
 			code0 := ByteCode(fusedCode[cur+0])
@@ -434,9 +384,6 @@ func calculateSkipSteps(code []byte, cur int) (skip bool, steps int) {
 	}
 
 	switch inst {
-	case ShlAndSub:
-		steps = 7
-		skip = true
 	case Push2Jump, Push2JumpI:
 		steps = 3
 		skip = true

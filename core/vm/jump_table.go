@@ -170,15 +170,6 @@ func newConstantinopleInstructionSet() JumpTable {
 		maxStack:    maxStack(0, 0),
 	}
 
-	// TODO-dav: lower the gas fee.
-	// super instructions.
-	instructionSet[ShlAndSub] = &operation{
-		execute:     opShlAndSub,
-		constantGas: 5 * GasFastestStep,
-		minStack:    minStack(0, 1),
-		maxStack:    maxStack(0, 1),
-	}
-
 	instructionSet[Push1Shl] = &operation{
 		execute:     opPush1Shl,
 		constantGas: 2 * GasFastestStep,
