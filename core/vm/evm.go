@@ -442,21 +442,23 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 	// but at the same some other tx (afterward but processed before request of deletion) are processed by code cache.
 	// Another way is to identify all possible way for code delete in stateDB, and to invalid any opti request related to
 	// the contract, which is complicated so maybe considered when GetCode here is heavy.
-	code = evm.StateDB.GetCode(addrCopy)
-	if len(code) == 0 {
-		return false, nil
-	}
 	optimized := false
 	if evm.Config.EnableOpcodeOptimizations {
-		codeHash := evm.StateDB.GetCodeHash(addrCopy)
-		if codeHash != (common.Hash{}) {
-			optCode := compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
-			if len(optCode) != 0 {
-				code = optCode
-				optimized = true
-			} else {
-				compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code, codeHash)
-			}
+		var optCode []byte
+		optCode, optimized = compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy)
+		if optimized {
+			code = optCode
+			optimized = true
+		}
+	}
+
+	if !optimized {
+		code = evm.StateDB.GetCode(addrCopy)
+		if len(code) == 0 {
+			return false, nil
+		}
+		if evm.Config.EnableOpcodeOptimizations {
+			compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code)
 		}
 	}
 	return optimized, code

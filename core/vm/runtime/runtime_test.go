@@ -1003,12 +1003,14 @@ func TestRuntimeJSTracerWithOpcodeOptimizer(t *testing.T) {
 	for i, jsTracer := range jsTracers {
 		for j, tc := range tests {
 			statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+			compiler.GetOpcodeProcessorInstance().DeleteCodeCache(main)
 			statedb.SetCode(main, tc.code)
 			statedb.SetCode(common.HexToAddress("0xbb"), calleeCode)
 			statedb.SetCode(common.HexToAddress("0xcc"), calleeCode)
 			statedb.SetCode(common.HexToAddress("0xdd"), calleeCode)
 			statedb.SetCode(common.HexToAddress("0xee"), calleeCode)
 			statedb.SetCode(common.HexToAddress("0xff"), depressedCode)
+
 			/* wait for optimized code to be generated */
 			time.Sleep(time.Second)
 			tracer, err := tracers.DefaultDirectory.New(jsTracer, new(tracers.Context), nil)
@@ -1023,7 +1025,7 @@ func TestRuntimeJSTracerWithOpcodeOptimizer(t *testing.T) {
 					Tracer:                    tracer,
 					EnableOpcodeOptimizations: true,
 				}})
-			compiler.GetOpcodeProcessorInstance().DeleteCodeCache(main, common.Hash{})
+			compiler.GetOpcodeProcessorInstance().DeleteCodeCache(main)
 			if err != nil {
 				t.Fatal("didn't expect error", err)
 			}

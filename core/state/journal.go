@@ -206,7 +206,7 @@ func (ch nonceChange) dirtied() *common.Address {
 
 func (ch codeChange) revert(s *StateDB) {
 	s.getStateObject(*ch.account).setCode(common.BytesToHash(ch.prevhash), ch.prevcode)
-	compiler.GetOpcodeProcessorInstance().RewriteOptimizedCodeForDB(*ch.account, ch.prevcode, common.BytesToHash(ch.prevhash))
+	compiler.GetOpcodeProcessorInstance().RewriteOptimizedCodeForDB(*ch.account, ch.prevcode)
 }
 
 func (ch codeChange) dirtied() *common.Address {

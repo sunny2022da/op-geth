@@ -19,45 +19,33 @@ const CodeCacheGCSoftLimit = 200 * 1024 * 1024 /* 200MB */
 type OptCode []byte
 
 type OpCodeCache struct {
-	opcodesCache   map[common.Address]map[common.Hash]OptCode
+	opcodesCache   map[common.Address]OptCode
 	codeCacheMutex sync.RWMutex
 	codeCacheSize  uint64
 }
 
-func (c *OpCodeCache) GetCachedCode(address common.Address, codeHash common.Hash) OptCode {
-
+func (c *OpCodeCache) GetCachedCode(address common.Address) (OptCode, bool) {
 	c.codeCacheMutex.RLock()
-
-	processedCode, ok := c.opcodesCache[address][codeHash]
-	if !ok {
-		processedCode = nil
-	}
-	c.codeCacheMutex.RUnlock()
-	return processedCode
+	defer c.codeCacheMutex.RUnlock()
+	processedCode, ok := c.opcodesCache[address]
+	return processedCode, ok
 }
 
-func (c *OpCodeCache) RemoveCachedCode(address common.Address, hash common.Hash) {
+func (c *OpCodeCache) RemoveCachedCode(address common.Address) {
 	c.codeCacheMutex.Lock()
 	if c.opcodesCache == nil || c.codeCacheSize == 0 {
 		c.codeCacheMutex.Unlock()
 		return
 	}
-	if hash == (common.Hash{}) {
-		_, ok := c.opcodesCache[address]
-		if ok {
-			delete(c.opcodesCache, address)
-		}
-	} else {
-		_, ok := c.opcodesCache[address][hash]
-		if ok {
-			delete(c.opcodesCache[address], hash)
-		}
+	_, ok := c.opcodesCache[address]
+	if ok {
+		delete(c.opcodesCache, address)
 	}
+
 	c.codeCacheMutex.Unlock()
 }
 
-func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, codeHash common.Hash) error {
-
+func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) error {
 	c.codeCacheMutex.Lock()
 
 	if c.codeCacheSize+CodeCacheGCSoftLimit > CodeCacheGCThreshold {
@@ -70,13 +58,9 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode, code
 		}
 		c.codeCacheSize = 0
 	}
-	if c.opcodesCache[address] == nil {
-		c.opcodesCache[address] = make(map[common.Hash]OptCode)
-	}
-	c.opcodesCache[address][codeHash] = code
+	c.opcodesCache[address] = code
 	c.codeCacheSize += uint64(len(code))
 	c.codeCacheMutex.Unlock()
-
 	return nil
 }
 
@@ -88,7 +72,7 @@ const codeCacheFileName = "codecache.json"
 func getOpCodeCacheInstance() *OpCodeCache {
 	once.Do(func() {
 		opcodeCache = &OpCodeCache{
-			opcodesCache:   make(map[common.Address]map[common.Hash]OptCode, CodeCacheGCThreshold>>10),
+			opcodesCache:   make(map[common.Address]OptCode, CodeCacheGCThreshold>>10),
 			codeCacheMutex: sync.RWMutex{},
 		}
 		// Try load code cache
@@ -111,18 +95,13 @@ func getOpCodeCacheInstance() *OpCodeCache {
 	return opcodeCache
 }
 
-func dumpCodeCache(filename string, codeCache map[common.Address]map[common.Hash]OptCode) {
-
+func dumpCodeCache(filename string, codeCache map[common.Address]OptCode) {
 	// Marshal data to JSON
 	jsonData, err := json.MarshalIndent(codeCache, "", "  ")
 	if err != nil {
 		log.Error("Error marshaling codecache to JSON:", "err", err)
 		return
 	}
-
-	// Print JSON to standard output
-	//fmt.Println("Data JSON:")
-	// fmt.Println(string(jsonData))
 
 	log.Info("OpcodeCache Dump:", "File", filename)
 	// Optional: write JSON to file
