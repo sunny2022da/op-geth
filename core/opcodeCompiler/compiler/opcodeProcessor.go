@@ -96,7 +96,7 @@ func (p *OpcodeProcessor) FlushCodeCache(address common.Address) {
 
 func (p *OpcodeProcessor) RewriteOptimizedCodeForDB(address common.Address, code []byte) {
 	if p.enabled {
-		p.GenOrLoadOptimizedCode(address, code)
+		p.TryGenerateOptimizedCode(address, code)
 	}
 }
 

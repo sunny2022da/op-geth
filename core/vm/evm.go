@@ -458,7 +458,7 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 			return false, nil
 		}
 		if evm.Config.EnableOpcodeOptimizations {
-			compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code)
+			compiler.GetOpcodeProcessorInstance().TryGenerateOptimizedCode(addrCopy, code)
 		}
 	}
 	return optimized, code
