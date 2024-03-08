@@ -83,7 +83,9 @@ func runTraceWithOption(tracer tracers.Tracer, vmctx *vmContext, chaincfg *param
 	}
 
 	if enableOpti {
-		optimized, _ := compiler.GetOpcodeProcessorInstance().GenOrRewriteOptimizedCode(contract.Address(), contract.Code)
+		// reset the code also require flush code cache.
+		compiler.DeleteCodeCache(contract.Address())
+		optimized, _ := compiler.GenOrRewriteOptimizedCode(contract.Address(), contract.Code)
 		contract.Code = optimized
 	}
 

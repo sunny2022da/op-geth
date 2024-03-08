@@ -151,7 +151,7 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 	evm.depth = 0
 	evm.interpreter = NewEVMInterpreter(evm)
 	if config.EnableOpcodeOptimizations {
-		compiler.GetOpcodeProcessorInstance().EnableOptimization()
+		compiler.EnableOptimization()
 	}
 	return evm
 }
@@ -448,12 +448,12 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 	}
 	optimized := false
 	if evm.Config.EnableOpcodeOptimizations {
-		optCode := compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy)
+		optCode := compiler.LoadOptimizedCode(addrCopy)
 		if len(optCode) != 0 {
 			code = optCode
 			optimized = true
 		} else {
-			compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code)
+			compiler.GenOrLoadOptimizedCode(addrCopy, code)
 		}
 	}
 	return optimized, code
