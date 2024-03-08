@@ -448,15 +448,12 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address) (bool, []byte) {
 	}
 	optimized := false
 	if evm.Config.EnableOpcodeOptimizations {
-		codeHash := evm.StateDB.GetCodeHash(addrCopy)
-		if codeHash != (common.Hash{}) {
-			optCode := compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy, codeHash)
-			if len(optCode) != 0 {
-				code = optCode
-				optimized = true
-			} else {
-				compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code, codeHash)
-			}
+		optCode := compiler.GetOpcodeProcessorInstance().LoadOptimizedCode(addrCopy)
+		if len(optCode) != 0 {
+			code = optCode
+			optimized = true
+		} else {
+			compiler.GetOpcodeProcessorInstance().GenOrLoadOptimizedCode(addrCopy, code)
 		}
 	}
 	return optimized, code
