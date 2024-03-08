@@ -1926,7 +1926,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.IsSet(VMOpcodeOptimizeFlag.Name) {
 		// TODO(fjl): force-enable this in --dev mode
 		cfg.EnableOpcodeOptimizing = ctx.Bool(VMOpcodeOptimizeFlag.Name)
-		compiler.GetOpcodeProcessorInstance().EnableOptimization()
+		compiler.EnableOptimization()
 	}
 
 	if ctx.IsSet(RPCGlobalGasCapFlag.Name) {
@@ -2376,7 +2376,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node, readonly bool) (*core.BlockCh
 		EnableOpcodeOptimizations: ctx.Bool(VMOpcodeOptimizeFlag.Name)}
 
 	if vmcfg.EnableOpcodeOptimizations {
-		compiler.GetOpcodeProcessorInstance()
+		compiler.EnableOptimization()
 	}
 	// Disable transaction indexing/unindexing by default.
 	chain, err := core.NewBlockChain(chainDb, cache, gspec, nil, engine, vmcfg, nil, nil)

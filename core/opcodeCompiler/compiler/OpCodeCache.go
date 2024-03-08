@@ -24,10 +24,21 @@ type OpCodeCache struct {
 	codeCacheSize  uint64
 }
 
+func (c *OpCodeCache) RemoveCachedCode(address common.Address) {
+	c.codeCacheMutex.Lock()
+	if c.opcodesCache == nil || c.codeCacheSize == 0 {
+		c.codeCacheMutex.Unlock()
+		return
+	}
+	_, ok := c.opcodesCache[address]
+	if ok {
+		delete(c.opcodesCache, address)
+	}
+	c.codeCacheMutex.Unlock()
+}
+
 func (c *OpCodeCache) GetCachedCode(address common.Address) OptCode {
-
 	c.codeCacheMutex.RLock()
-
 	processedCode, ok := c.opcodesCache[address]
 	if !ok {
 		processedCode = nil
@@ -57,34 +68,35 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) erro
 	return nil
 }
 
-var once sync.Once
 var opcodeCache *OpCodeCache
 
 const codeCacheFileName = "codecache.json"
 
-func getOpCodeCacheInstance() *OpCodeCache {
-	once.Do(func() {
-		opcodeCache = &OpCodeCache{
-			opcodesCache:   make(map[common.Address]OptCode, CodeCacheGCThreshold>>10),
-			codeCacheMutex: sync.RWMutex{},
-		}
-		// Try load code cache
-		loadCodeCacheFromFile(codeCacheFileName, opcodeCache)
-		// Handle Sigusr2 signal
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGUSR2)
-		go func() {
-			for { // Infinite loop to wait for signals
-				signal := <-sigCh
-				switch signal {
-				case syscall.SIGUSR2:
-					opcodeCache.codeCacheMutex.RLock()
-					dumpCodeCache(codeCacheFileName, opcodeCache.opcodesCache)
-					opcodeCache.codeCacheMutex.RUnlock()
-				}
+func init() {
+	opcodeCache = &OpCodeCache{
+		opcodesCache:   make(map[common.Address]OptCode, CodeCacheGCThreshold>>10),
+		codeCacheMutex: sync.RWMutex{},
+	}
+
+	// Try load code cache
+	loadCodeCacheFromFile(codeCacheFileName, opcodeCache)
+	// Handle Sigusr2 signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGUSR2)
+	go func() {
+		for { // Infinite loop to wait for signals
+			signal := <-sigCh
+			switch signal {
+			case syscall.SIGUSR2:
+				opcodeCache.codeCacheMutex.RLock()
+				dumpCodeCache(codeCacheFileName, opcodeCache.opcodesCache)
+				opcodeCache.codeCacheMutex.RUnlock()
 			}
-		}()
-	})
+		}
+	}()
+}
+
+func getOpCodeCacheInstance() *OpCodeCache {
 	return opcodeCache
 }
 
@@ -96,10 +108,6 @@ func dumpCodeCache(filename string, codeCache map[common.Address]OptCode) {
 		log.Error("Error marshaling codecache to JSON:", "err", err)
 		return
 	}
-
-	// Print JSON to standard output
-	//fmt.Println("Data JSON:")
-	// fmt.Println(string(jsonData))
 
 	log.Info("OpcodeCache Dump:", "File", filename)
 	// Optional: write JSON to file
