@@ -50,7 +50,10 @@ func init() {
 	codeCache = nil
 	taskChannel = make(chan optimizeTask, taskChannelSize)
 	// start task processors.
-	taskNumber := max(runtime.NumCPU()*3/8, 1)
+	taskNumber := runtime.NumCPU() * 3 / 8
+	if taskNumber < 1 {
+		taskNumber = 1
+	}
 	codeCache = getOpCodeCacheInstance()
 
 	for i := 0; i < taskNumber; i++ {
