@@ -84,19 +84,23 @@ func LoadOptimizedCode(address common.Address) OptCode {
 }
 
 func GenOrLoadOptimizedCode(address common.Address, code []byte) {
+	if !enabled {
+		return
+	}
 	task := optimizeTask{generate, address, code}
 	taskChannel <- task
 }
 
 func FlushCodeCache(address common.Address) {
+	if !enabled {
+		return
+	}
 	task := optimizeTask{flush, address, nil}
 	taskChannel <- task
 }
 
 func RewriteOptimizedCodeForDB(address common.Address, code []byte, hash common.Hash) {
 	if enabled {
-		// p.GenOrRewriteOptimizedCode(address, code, hash)
-		//
 		GenOrLoadOptimizedCode(address, code)
 	}
 }
