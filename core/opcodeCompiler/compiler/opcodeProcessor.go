@@ -156,7 +156,7 @@ func TryGenerateOptimizedCode(address common.Address, code []byte) (OptCode, boo
 }
 
 func DeleteCodeCache(addr common.Address) {
-	if enabled {
+	if !enabled {
 		return
 	}
 	// flush in case there are invalid cached code
