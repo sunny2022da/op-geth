@@ -508,8 +508,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	// The contract is a scoped environment for this execution context only.
 	contract := NewContract(caller, AccountRef(address), value, gas)
 	contract.SetCodeOptionalHash(&address, codeAndHash)
-	// We don't optimize creation code as it run only once.
-	contract.optimized = false
+
 	if evm.Config.Debug {
 		if evm.depth == 0 {
 			evm.Config.Tracer.CaptureStart(evm, caller.Address(), address, true, codeAndHash.code, gas, value)
@@ -517,7 +516,18 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 			evm.Config.Tracer.CaptureEnter(typ, caller.Address(), address, codeAndHash.code, gas, value)
 		}
 	}
+	// We don't optimize creation code as it run only once and may cause code cache issue.
+	contract.optimized = false
+	if evm.Config.EnableOpcodeOptimizations {
+		compiler.DisableOptimization()
+	}
 	ret, err := evm.interpreter.Run(contract, nil, false)
+
+	// After creation, retrieve to optimization
+	if evm.Config.EnableOpcodeOptimizations {
+		compiler.EnableOptimization()
+	}
+
 	// Check whether the max code size has been exceeded, assign err if the case.
 	if err == nil && evm.chainRules.IsEIP158 && len(ret) > params.MaxCodeSize {
 		err = ErrMaxCodeSizeExceeded
