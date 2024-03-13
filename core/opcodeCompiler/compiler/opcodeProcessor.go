@@ -83,6 +83,21 @@ func LoadOptimizedCode(address common.Address) OptCode {
 
 }
 
+func LoadBitvec(codeHash common.Hash) []byte {
+	if !enabled {
+		return nil
+	}
+	bitvec := codeCache.GetBitvecCache(codeHash)
+	return bitvec
+}
+
+func StoreBitvec(codeHash common.Hash, bitvec []byte) {
+	if !enabled {
+		return
+	}
+	codeCache.AddBitvecCache(codeHash, bitvec)
+}
+
 func GenOrLoadOptimizedCode(address common.Address, code []byte) {
 	if !enabled {
 		return
