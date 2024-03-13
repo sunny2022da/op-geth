@@ -18,6 +18,7 @@ package vm
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"github.com/holiman/uint256"
 	"math/big"
 )
@@ -115,8 +116,17 @@ func (c *Contract) isCode(udest uint64) bool {
 		if !exist {
 			// Do the analysis and save in parent context
 			// We do not need to store it in c.analysis
-			analysis = codeBitmap(c.Code)
-			c.jumpdests[c.CodeHash] = analysis
+			if c.optimized {
+				analysis = compiler.LoadBitvec(c.CodeHash)
+				if analysis == nil {
+					analysis = codeBitmap(c.Code)
+					compiler.StoreBitvec(c.CodeHash, analysis)
+				}
+				c.jumpdests[c.CodeHash] = analysis
+			} else {
+				analysis = codeBitmap(c.Code)
+				c.jumpdests[c.CodeHash] = analysis
+			}
 		}
 		// Also stash it in current contract for faster access
 		c.analysis = analysis
