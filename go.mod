@@ -2,8 +2,6 @@ module github.com/ethereum/go-ethereum
 
 go 1.21
 
-toolchain go1.21.4
-
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.3.0
 	github.com/VictoriaMetrics/fastcache v1.12.0
