@@ -37,7 +37,6 @@ const (
 
 type optimizeTask struct {
 	taskType optimizeTaskType
-	addr     common.Address
 	hash     common.Hash
 	rawCode  []byte
 }
@@ -71,35 +70,35 @@ func DisableOptimization() {
 }
 
 // Producer functions
-func LoadOptimizedCode(address common.Address, hash common.Hash) OptCode {
+func LoadOptimizedCode(hash common.Hash) OptCode {
 	if !enabled {
 		return nil
 	}
 	/* Try load from cache */
-	processedCode := codeCache.GetCachedCode(address, hash)
+	processedCode := codeCache.GetCachedCode(hash)
 	return processedCode
 
 }
 
-func GenOrLoadOptimizedCode(address common.Address, hash common.Hash, code []byte) {
+func GenOrLoadOptimizedCode(hash common.Hash, code []byte) {
 	if !enabled {
 		return
 	}
-	task := optimizeTask{generate, address, hash, code}
+	task := optimizeTask{generate, hash, code}
 	taskChannel <- task
 }
 
-func FlushCodeCache(address common.Address, hash common.Hash) {
+func FlushCodeCache(hash common.Hash) {
 	if !enabled {
 		return
 	}
-	task := optimizeTask{flush, address, hash, nil}
+	task := optimizeTask{flush, hash, nil}
 	taskChannel <- task
 }
 
-func RewriteOptimizedCodeForDB(address common.Address, hash common.Hash, code []byte) {
+func RewriteOptimizedCodeForDB(hash common.Hash, code []byte) {
 	if enabled {
-		GenOrLoadOptimizedCode(address, hash, code)
+		GenOrLoadOptimizedCode(hash, code)
 	}
 }
 
@@ -115,14 +114,14 @@ func taskProcessor() {
 func handleOptimizationTask(task optimizeTask) {
 	switch task.taskType {
 	case generate:
-		TryGenerateOptimizedCode(task.addr, task.hash, task.rawCode)
+		TryGenerateOptimizedCode(task.hash, task.rawCode)
 	case flush:
-		DeleteCodeCache(task.addr)
+		DeleteCodeCache(task.hash)
 	}
 }
 
 // GenOrRewriteOptimizedCode generate the optimized code and refresh the codecache.
-func GenOrRewriteOptimizedCode(address common.Address, hash common.Hash, code []byte) (OptCode, error) {
+func GenOrRewriteOptimizedCode(hash common.Hash, code []byte) (OptCode, error) {
 	if !enabled {
 		return nil, ErrOptiDisabled
 	}
@@ -132,23 +131,23 @@ func GenOrRewriteOptimizedCode(address common.Address, hash common.Hash, code []
 		return nil, err
 	}
 
-	err = codeCache.UpdateCodeCache(address, hash, processedCode)
+	err = codeCache.UpdateCodeCache(hash, processedCode)
 	if err != nil {
 		log.Error("Not update code cache", "err", err)
 	}
 	return processedCode, err
 }
 
-func TryGenerateOptimizedCode(address common.Address, hash common.Hash, code []byte) (OptCode, bool, error) {
+func TryGenerateOptimizedCode(hash common.Hash, code []byte) (OptCode, bool, error) {
 	if !enabled {
 		return nil, false, ErrOptiDisabled
 	}
 	/* Try load from cache */
-	processedCode := codeCache.GetCachedCode(address, hash)
+	processedCode := codeCache.GetCachedCode(hash)
 	hit := false
 	var err error = nil
 	if processedCode == nil || len(processedCode) == 0 {
-		processedCode, err = GenOrRewriteOptimizedCode(address, hash, code)
+		processedCode, err = GenOrRewriteOptimizedCode(hash, code)
 		hit = false
 	} else {
 		hit = true
@@ -156,12 +155,12 @@ func TryGenerateOptimizedCode(address common.Address, hash common.Hash, code []b
 	return processedCode, hit, err
 }
 
-func DeleteCodeCache(addr common.Address) {
+func DeleteCodeCache(hash common.Hash) {
 	if !enabled {
 		return
 	}
 	// flush in case there are invalid cached code
-	codeCache.RemoveCachedCode(addr)
+	codeCache.RemoveCachedCode(hash)
 }
 
 func processByteCodes(code []byte) (OptCode, error) {

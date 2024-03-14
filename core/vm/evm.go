@@ -453,12 +453,12 @@ func tryGetOptimizedCode(evm *EVM, addrCopy common.Address, codeHash common.Hash
 	}
 	optimized := false
 	if evm.Config.EnableOpcodeOptimizations {
-		optCode := compiler.LoadOptimizedCode(addrCopy, codeHash)
+		optCode := compiler.LoadOptimizedCode(codeHash)
 		if len(optCode) != 0 {
 			code = optCode
 			optimized = true
 		} else {
-			compiler.GenOrLoadOptimizedCode(addrCopy, codeHash, code)
+			compiler.GenOrLoadOptimizedCode(codeHash, code)
 		}
 	}
 	return optimized, code
