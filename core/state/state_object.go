@@ -19,7 +19,6 @@ package state
 import (
 	"bytes"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
 	"io"
 	"math/big"
 	"sync"
@@ -515,7 +514,7 @@ func (s *stateObject) setCode(codeHash common.Hash, code []byte) {
 	s.code = code
 	s.data.CodeHash = codeHash[:]
 	s.dirtyCode = true
-	compiler.GenOrLoadOptimizedCode(s.address, s.code)
+	//compiler.GenOrLoadOptimizedCode(s.address, s.code)
 }
 
 func (s *stateObject) SetNonce(nonce uint64) {

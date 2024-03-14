@@ -19,7 +19,7 @@ const CodeCacheGCSoftLimit = 200 * 1024 * 1024 /* 200MB */
 type OptCode []byte
 
 type OpCodeCache struct {
-	opcodesCache   map[common.Address]OptCode
+	opcodesCache   map[common.Address]map[common.Hash]OptCode
 	codeCacheMutex sync.RWMutex
 	codeCacheSize  uint64
 }
@@ -37,9 +37,9 @@ func (c *OpCodeCache) RemoveCachedCode(address common.Address) {
 	c.codeCacheMutex.Unlock()
 }
 
-func (c *OpCodeCache) GetCachedCode(address common.Address) OptCode {
+func (c *OpCodeCache) GetCachedCode(address common.Address, hash common.Hash) OptCode {
 	c.codeCacheMutex.RLock()
-	processedCode, ok := c.opcodesCache[address]
+	processedCode, ok := c.opcodesCache[address][hash]
 	if !ok {
 		processedCode = nil
 	}
@@ -47,7 +47,7 @@ func (c *OpCodeCache) GetCachedCode(address common.Address) OptCode {
 	return processedCode
 }
 
-func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) error {
+func (c *OpCodeCache) UpdateCodeCache(address common.Address, hash common.Hash, code OptCode) error {
 
 	c.codeCacheMutex.Lock()
 
@@ -61,10 +61,12 @@ func (c *OpCodeCache) UpdateCodeCache(address common.Address, code OptCode) erro
 		}
 		c.codeCacheSize = 0
 	}
-	c.opcodesCache[address] = code
+	if c.opcodesCache[address] == nil {
+		c.opcodesCache[address] = make(map[common.Hash]OptCode)
+	}
+	c.opcodesCache[address][hash] = code
 	c.codeCacheSize += uint64(len(code))
 	c.codeCacheMutex.Unlock()
-
 	return nil
 }
 
@@ -74,7 +76,7 @@ const codeCacheFileName = "codecache.json"
 
 func init() {
 	opcodeCache = &OpCodeCache{
-		opcodesCache:   make(map[common.Address]OptCode, CodeCacheGCThreshold>>10),
+		opcodesCache:   make(map[common.Address]map[common.Hash]OptCode, CodeCacheGCThreshold>>10),
 		codeCacheMutex: sync.RWMutex{},
 	}
 
@@ -100,7 +102,7 @@ func getOpCodeCacheInstance() *OpCodeCache {
 	return opcodeCache
 }
 
-func dumpCodeCache(filename string, codeCache map[common.Address]OptCode) {
+func dumpCodeCache(filename string, codeCache map[common.Address]map[common.Hash]OptCode) {
 
 	// Marshal data to JSON
 	jsonData, err := json.MarshalIndent(codeCache, "", "  ")
