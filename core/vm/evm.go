@@ -248,15 +248,15 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		if len(code) == 0 {
 			ret, err = nil, nil // gas is unchanged
 		} else {
-			optimized := false
 			addrCopy := addr
+			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
+
 			codeHash := evm.StateDB.GetCodeHash(addrCopy)
-			optimized, code = tryGetOptimizedCode(evm, addrCopy, codeHash)
+			contract.optimized, code = tryGetOptimizedCode(evm, codeHash, code)
 			// If the account has no code, we can abort here
 			// The depth-check is already done, and precompiles handled above
-			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
 			contract.SetCallCode(&addrCopy, codeHash, code)
-			contract.optimized = optimized
+
 			ret, err = evm.interpreter.Run(contract, input, false)
 			gas = contract.Gas
 		}
@@ -314,10 +314,9 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(caller.Address()), value, gas)
 		// try get from cache
+		code := evm.StateDB.GetCode(addr)
 		codeHash := evm.StateDB.GetCodeHash(addrCopy)
-		optimized, code := tryGetOptimizedCode(evm, addrCopy, codeHash)
-
-		contract.optimized = optimized
+		contract.optimized, code = tryGetOptimizedCode(evm, codeHash, code)
 		contract.SetCallCode(&addrCopy, codeHash, code)
 		ret, err = evm.interpreter.Run(contract, input, false)
 		gas = contract.Gas
@@ -362,10 +361,9 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		addrCopy := addr
 		// Initialise a new contract and make initialise the delegate values
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
-		// try get from cache
+		code := evm.StateDB.GetCode(addr)
 		codeHash := evm.StateDB.GetCodeHash(addrCopy)
-		optimized, code := tryGetOptimizedCode(evm, addrCopy, codeHash)
-		contract.optimized = optimized
+		contract.optimized, code = tryGetOptimizedCode(evm, codeHash, code)
 		contract.SetCallCode(&addrCopy, codeHash, code)
 		ret, err = evm.interpreter.Run(contract, input, false)
 		gas = contract.Gas
@@ -420,10 +418,10 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
-		// try get from cache
+		// Try get optimized code
+		code := evm.StateDB.GetCode(addr)
 		codeHash := evm.StateDB.GetCodeHash(addrCopy)
-		optimized, code := tryGetOptimizedCode(evm, addrCopy, codeHash)
-		contract.optimized = optimized
+		contract.optimized, code = tryGetOptimizedCode(evm, codeHash, code)
 		contract.SetCallCode(&addrCopy, codeHash, code)
 		// When an error was returned by the EVM or when setting the creation code
 		// above we revert to the snapshot and consume any gas remaining. Additionally
@@ -440,25 +438,17 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	return ret, gas, err
 }
 
-func tryGetOptimizedCode(evm *EVM, addrCopy common.Address, codeHash common.Hash) (bool, []byte) {
+func tryGetOptimizedCode(evm *EVM, codeHash common.Hash, rawCode []byte) (bool, []byte) {
 	var code []byte
-	// In case the code is not in stateDB. skip the optimization
-	// TODO - this is a must to avoid the case that code has required to be delete but not yet processed by the codecache,
-	// but at the same some other tx (afterward but processed before request of deletion) are processed by code cache.
-	// Another way is to identify all possible way for code delete in stateDB, and to invalid any opti request related to
-	// the contract, which is complicated so maybe considered when GetCode here is heavy.
-	code = evm.StateDB.GetCode(addrCopy)
-	if len(code) == 0 {
-		return false, nil
-	}
 	optimized := false
+	code = rawCode
 	if evm.Config.EnableOpcodeOptimizations {
 		optCode := compiler.LoadOptimizedCode(codeHash)
 		if len(optCode) != 0 {
 			code = optCode
 			optimized = true
 		} else {
-			compiler.GenOrLoadOptimizedCode(codeHash, code)
+			compiler.GenOrLoadOptimizedCode(codeHash, rawCode)
 		}
 	}
 	return optimized, code
