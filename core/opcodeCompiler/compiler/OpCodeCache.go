@@ -3,6 +3,7 @@ package compiler
 import (
 	"encoding/json"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/lru"
 	"github.com/ethereum/go-ethereum/log"
 	"os"
 	"os/signal"
@@ -20,8 +21,21 @@ type OptCode []byte
 
 type OpCodeCache struct {
 	opcodesCache   map[common.Hash]OptCode
+	bitvecCache    *lru.SizeConstrainedCache[common.Hash, []byte]
 	codeCacheMutex sync.RWMutex
 	codeCacheSize  uint64
+}
+
+func (c *OpCodeCache) GetBitvecCache(codeHash common.Hash) []byte {
+	bitvec, ok := c.bitvecCache.Get(codeHash)
+	if !ok {
+		bitvec = nil
+	}
+	return bitvec
+}
+
+func (c *OpCodeCache) AddBitvecCache(codeHash common.Hash, bitvec []byte) {
+	c.bitvecCache.Add(codeHash, bitvec)
 }
 
 func (c *OpCodeCache) RemoveCachedCode(hash common.Hash) {
@@ -48,7 +62,6 @@ func (c *OpCodeCache) GetCachedCode(hash common.Hash) OptCode {
 }
 
 func (c *OpCodeCache) UpdateCodeCache(hash common.Hash, code OptCode) error {
-
 	c.codeCacheMutex.Lock()
 
 	if c.codeCacheSize+CodeCacheGCSoftLimit > CodeCacheGCThreshold {
@@ -70,11 +83,15 @@ func (c *OpCodeCache) UpdateCodeCache(hash common.Hash, code OptCode) error {
 
 var opcodeCache *OpCodeCache
 
-const codeCacheFileName = "codecache.json"
+const (
+	codeCacheFileName = "codecache.json"
+	bitvecCacheSize   = 64 * 1024 * 1024
+)
 
 func init() {
 	opcodeCache = &OpCodeCache{
 		opcodesCache:   make(map[common.Hash]OptCode, CodeCacheGCThreshold>>10),
+		bitvecCache:    lru.NewSizeConstrainedCache[common.Hash, []byte](bitvecCacheSize),
 		codeCacheMutex: sync.RWMutex{},
 	}
 
