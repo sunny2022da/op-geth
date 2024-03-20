@@ -19,6 +19,7 @@ package vm
 import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 	"math/big"
 )
@@ -100,10 +101,15 @@ func (c *Contract) validJumpdest(dest *uint256.Int) bool {
 	return false
 }
 
+var optimizedJumpCount int64
+var jumpCount int64
+
 // isCode returns true if the provided PC location is an actual opcode, as
 // opposed to a data-segment following a PUSHN operation.
 func (c *Contract) isCode(udest uint64) bool {
 	// Do we already have an analysis laying around?
+	jumpCount++
+	log.Info("test total jump", "jumpCount", jumpCount)
 	if c.analysis != nil {
 		return c.analysis.codeSegment(udest)
 	}
@@ -117,7 +123,9 @@ func (c *Contract) isCode(udest uint64) bool {
 			// Do the analysis and save in parent context
 			// We do not need to store it in c.analysis
 			if c.optimized {
+				optimizedJumpCount++
 				analysis = compiler.LoadBitvec(c.CodeHash)
+				log.Info("test optimized jump", "optimizedJumpCount", optimizedJumpCount)
 				if analysis == nil {
 					analysis = codeBitmap(c.Code)
 					compiler.StoreBitvec(c.CodeHash, analysis)

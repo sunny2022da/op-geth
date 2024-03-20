@@ -18,6 +18,7 @@ package vm
 
 import (
 	"github.com/ethereum/go-ethereum/core/opcodeCompiler/compiler"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 	"math/big"
 	"sync"
@@ -438,7 +439,12 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	return ret, gas, err
 }
 
+var optimizedCount int64
+var count int64
+
 func tryGetOptimizedCode(evm *EVM, codeHash common.Hash, rawCode []byte) (bool, []byte) {
+	count++
+	log.Info("test total", "count", count)
 	var code []byte
 	optimized := false
 	code = rawCode
@@ -447,6 +453,8 @@ func tryGetOptimizedCode(evm *EVM, codeHash common.Hash, rawCode []byte) (bool, 
 		if len(optCode) != 0 {
 			code = optCode
 			optimized = true
+			optimizedCount++
+			log.Info("test optimizedCount", "optimizedCount", optimizedCount)
 		} else {
 			compiler.GenOrLoadOptimizedCode(codeHash, rawCode)
 		}
