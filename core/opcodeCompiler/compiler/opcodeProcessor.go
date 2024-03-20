@@ -8,19 +8,22 @@ import (
 	"runtime"
 )
 
-type CodeType uint8
-
-var ErrFailPreprocessing = errors.New("fail to do preprocessing")
-var ErrOptiDisabled = errors.New("Opcode optimization is disabled")
-
-var opCodeOptimizationInited bool
-
-const taskChannelSize = 1024 * 1024
-
 var (
 	enabled     bool
 	codeCache   *OpCodeCache
 	taskChannel chan optimizeTask
+)
+
+var (
+	ErrFailPreprocessing = errors.New("fail to do preprocessing")
+	ErrOptimizedDisabled = errors.New("opcode optimization is disabled")
+)
+
+const taskChannelSize = 1024 * 1024
+
+const (
+	generate optimizeTaskType = 1
+	flush    optimizeTaskType = 2
 )
 
 type OpCodeProcessorConfig struct {
@@ -29,11 +32,7 @@ type OpCodeProcessorConfig struct {
 
 type optimizeTaskType byte
 
-const (
-	unknown  optimizeTaskType = 0
-	generate optimizeTaskType = 1
-	flush    optimizeTaskType = 2
-)
+type CodeType uint8
 
 type optimizeTask struct {
 	taskType optimizeTaskType
@@ -42,14 +41,7 @@ type optimizeTask struct {
 }
 
 func init() {
-	if opCodeOptimizationInited {
-		return
-	}
-	opCodeOptimizationInited = true
-	enabled = false
-	codeCache = nil
 	taskChannel = make(chan optimizeTask, taskChannelSize)
-	// start task processors.
 	taskNumber := runtime.NumCPU() * 3 / 8
 	if taskNumber < 1 {
 		taskNumber = 1
@@ -72,12 +64,10 @@ func DisableOptimization() {
 	enabled = false
 }
 
-// Producer functions
-func LoadOptimizedCode(hash common.Hash) OptCode {
+func LoadOptimizedCode(hash common.Hash) []byte {
 	if !enabled {
 		return nil
 	}
-	/* Try load from cache */
 	processedCode := codeCache.GetCachedCode(hash)
 	return processedCode
 
@@ -87,7 +77,7 @@ func LoadBitvec(codeHash common.Hash) []byte {
 	if !enabled {
 		return nil
 	}
-	bitvec := codeCache.GetBitvecCache(codeHash)
+	bitvec := codeCache.GetCachedBitvec(codeHash)
 	return bitvec
 }
 
@@ -106,21 +96,6 @@ func GenOrLoadOptimizedCode(hash common.Hash, code []byte) {
 	taskChannel <- task
 }
 
-func FlushCodeCache(hash common.Hash) {
-	if !enabled {
-		return
-	}
-	task := optimizeTask{flush, hash, nil}
-	taskChannel <- task
-}
-
-func RewriteOptimizedCodeForDB(hash common.Hash, code []byte) {
-	if enabled {
-		GenOrLoadOptimizedCode(hash, code)
-	}
-}
-
-// Consumer function
 func taskProcessor() {
 	for {
 		task := <-taskChannel
@@ -132,45 +107,38 @@ func taskProcessor() {
 func handleOptimizationTask(task optimizeTask) {
 	switch task.taskType {
 	case generate:
-		TryGenerateOptimizedCode(task.hash, task.rawCode)
+		_, err := TryGenerateOptimizedCode(task.hash, task.rawCode)
+		if err != nil {
+			log.Error("Can not generate optimized code", "error", err)
+		}
 	case flush:
 		DeleteCodeCache(task.hash)
 	}
 }
 
-// GenOrRewriteOptimizedCode generate the optimized code and refresh the codecache.
-func GenOrRewriteOptimizedCode(hash common.Hash, code []byte) (OptCode, error) {
+// GenOrRewriteOptimizedCode generate the optimized code and refresh the code cache.
+func GenOrRewriteOptimizedCode(hash common.Hash, code []byte) ([]byte, error) {
 	if !enabled {
-		return nil, ErrOptiDisabled
+		return nil, ErrOptimizedDisabled
 	}
 	processedCode, err := processByteCodes(code)
 	if err != nil {
-		log.Error("Can not generate optimized code: %s\n", err.Error())
 		return nil, err
 	}
-
-	err = codeCache.UpdateCodeCache(hash, processedCode)
-	if err != nil {
-		log.Error("Not update code cache", "err", err)
-	}
+	codeCache.AddCodeCache(hash, processedCode)
 	return processedCode, err
 }
 
-func TryGenerateOptimizedCode(hash common.Hash, code []byte) (OptCode, bool, error) {
+func TryGenerateOptimizedCode(hash common.Hash, code []byte) ([]byte, error) {
 	if !enabled {
-		return nil, false, ErrOptiDisabled
+		return nil, ErrOptimizedDisabled
 	}
-	/* Try load from cache */
 	processedCode := codeCache.GetCachedCode(hash)
-	hit := false
 	var err error = nil
 	if processedCode == nil || len(processedCode) == 0 {
 		processedCode, err = GenOrRewriteOptimizedCode(hash, code)
-		hit = false
-	} else {
-		hit = true
 	}
-	return processedCode, hit, err
+	return processedCode, err
 }
 
 func DeleteCodeCache(hash common.Hash) {
@@ -181,11 +149,11 @@ func DeleteCodeCache(hash common.Hash) {
 	codeCache.RemoveCachedCode(hash)
 }
 
-func processByteCodes(code []byte) (OptCode, error) {
+func processByteCodes(code []byte) ([]byte, error) {
 	return doOpcodesProcess(code)
 }
 
-func doOpcodesProcess(code []byte) (OptCode, error) {
+func doOpcodesProcess(code []byte) ([]byte, error) {
 	code, err := doCodeFusion(code)
 	if err != nil {
 		return nil, ErrFailPreprocessing
