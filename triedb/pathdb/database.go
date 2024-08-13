@@ -415,7 +415,6 @@ func (db *Database) Recover(root common.Hash, loader triestate.TrieLoader) error
 		if err != nil {
 			return err
 		}
-
 		dl, err = dl.revert(h, loader)
 		if err != nil {
 			return err
