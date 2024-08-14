@@ -846,7 +846,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	}
 
 	dispatchTime := time.Now()
-
+	var mergeDur time.Duration = 0
 	// wait until all Txs have processed.
 	for {
 		if len(commonTxs) == txNum {
@@ -862,6 +862,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
 
 		for {
+			mergeTimeStart := time.Now()
 			result := p.confirmTxResults(statedb, gp)
 			if result == nil {
 				break
@@ -875,6 +876,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			}
 			commonTxs = append(commonTxs, result.txReq.tx)
 			receipts = append(receipts, result.receipt)
+			mergeTime := time.Since(mergeTimeStart)
+			mergeDur += mergeTime
 		}
 	}
 
@@ -910,10 +913,11 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	}
 	postProcessTime := time.Now()
 
-	log.Warn("Before parallel process exit", "block number", block.NumberU64(),
+	log.Debug("Before parallel process exit", "block number", block.NumberU64(),
 		"InitTime", common.PrettyDuration(initialTime.Sub(procTime)),
 		"DispatchTime", common.PrettyDuration(dispatchTime.Sub(initialTime)),
 		"resultProcessTime", common.PrettyDuration(resultProcessTime.Sub(dispatchTime)),
+		"mergeTime", common.PrettyDuration(mergeDur),
 		"postProcessTime", common.PrettyDuration(postProcessTime.Sub(resultProcessTime)),
 		"wholeTime", common.PrettyDuration(postProcessTime.Sub(procTime)))
 
