@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -748,6 +749,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		gp       = new(GasPool).AddGas(block.GasLimit())
 	)
 
+	procTime := time.Now()
+
 	// Mutate the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyDAOHardFork(statedb)
@@ -772,8 +775,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
 	}
 	statedb.MarkFullProcessed()
+	initialTime := time.Now()
 	txDAG := cfg.TxDAG
-
 	txNum := len(allTxs)
 	latestExcludedTx := -1
 	// Iterate over and process the individual transactions
@@ -842,6 +845,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		slot.primaryWakeUpChan <- struct{}{}
 	}
 
+	dispatchTime := time.Now()
+
 	// wait until all Txs have processed.
 	for {
 		if len(commonTxs) == txNum {
@@ -873,6 +878,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 	}
 
+	resultProcessTime := time.Now()
 	// clean up when the block is processed
 	p.doCleanUp()
 
@@ -902,6 +908,15 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	for _, receipt := range receipts {
 		allLogs = append(allLogs, receipt.Logs...)
 	}
+	postProcessTime := time.Now()
+
+	log.Warn("Before parallel process exit", "block number", block.NumberU64(),
+		"InitTime", common.PrettyDuration(initialTime.Sub(procTime)),
+		"DispatchTime", common.PrettyDuration(dispatchTime.Sub(initialTime)),
+		"resultProcessTime", common.PrettyDuration(resultProcessTime.Sub(dispatchTime)),
+		"postProcessTime", common.PrettyDuration(postProcessTime.Sub(resultProcessTime)),
+		"wholeTime", common.PrettyDuration(postProcessTime.Sub(procTime)))
+
 	return receipts, allLogs, *usedGas, nil
 }
 
