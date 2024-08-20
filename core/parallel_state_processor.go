@@ -784,7 +784,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		p.targetStage2Count = p.targetStage2Count - stage2AheadNum
 	}
 
-	p.delayGasFee = false
+	p.delayGasFee = true
 	p.doStaticDispatch(p.allTxReqs)
 	if txDAG != nil && txDAG.DelayGasFeeDistribution() {
 		p.delayGasFee = true
