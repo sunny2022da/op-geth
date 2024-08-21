@@ -505,15 +505,35 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 		wakeupChan = curSlot.shadowWakeUpChan
 		stopChan = curSlot.shadowStopChan
 	}
+
+	var totalWaitChanDur time.Duration
+	var totalTryRunTxDur time.Duration
+	var totalExecuteTxDur time.Duration
+	var totalRunSlotLoopDur time.Duration
+
 	for {
+		loopBeginTime := time.Now()
 		select {
 		case <-stopChan:
+			totalRunSlotLoopDur = time.Since(loopBeginTime)
+			log.Warn("RunSlotLoopTimer", "slotIndex", slotIndex, "slotType", slotType,
+				"totalTime", common.PrettyDuration(totalRunSlotLoopDur),
+				"totalWaitChanDur", common.PrettyDuration(totalWaitChanDur),
+				"totalTryRunTxDur", common.PrettyDuration(totalTryRunTxDur),
+				"totalExecuteTxDur", common.PrettyDuration(totalExecuteTxDur))
+			totalWaitChanDur = 0
+			totalTryRunTxDur = 0
+			totalExecuteTxDur = 0
+			totalRunSlotLoopDur = 0
 			p.stopSlotChan <- struct{}{}
 			continue
 		case <-wakeupChan:
+			totalWaitChanDur += time.Since(loopBeginTime)
+			loopBeginTime = time.Now()
 		}
 
 		interrupted := false
+		innerLoopBeforeTime := time.Now()
 		for _, txReq := range curSlot.pendingTxReqList {
 			if txReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
@@ -526,12 +546,15 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			if !atomic.CompareAndSwapInt32(&txReq.runnable, 1, 0) {
 				continue
 			}
+			timeBeforeExec := time.Now()
 			res := p.executeInSlot(slotIndex, txReq)
+			totalExecuteTxDur += time.Since(timeBeforeExec)
 			if res == nil {
 				continue
 			}
 			p.txResultChan <- res
 		}
+		totalTryRunTxDur += time.Since(innerLoopBeforeTime)
 		// switched to the other slot.
 		if interrupted {
 			continue
@@ -539,6 +562,7 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 
 		// txReq in this Slot have all been executed, try steal one from other slot.
 		// as long as the TxReq is runnable, we steal it, mark it as stolen
+		stealLoopBeforeTime := time.Now()
 		for _, stealTxReq := range p.allTxReqs {
 			if stealTxReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
@@ -551,12 +575,15 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			if !atomic.CompareAndSwapInt32(&stealTxReq.runnable, 1, 0) {
 				continue
 			}
+			timeBeforeExec := time.Now()
 			res := p.executeInSlot(slotIndex, stealTxReq)
+			totalExecuteTxDur += time.Since(timeBeforeExec)
 			if res == nil {
 				continue
 			}
 			p.txResultChan <- res
 		}
+		totalTryRunTxDur += time.Since(stealLoopBeforeTime)
 	}
 }
 
