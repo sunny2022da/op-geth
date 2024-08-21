@@ -513,9 +513,10 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 
 	for {
 		loopBeginTime := time.Now()
+		startTime := time.Now()
 		select {
 		case <-stopChan:
-			totalRunSlotLoopDur = time.Since(loopBeginTime)
+			totalRunSlotLoopDur = time.Since(startTime)
 			log.Warn("RunSlotLoopTimer", "slotIndex", slotIndex, "slotType", slotType,
 				"totalTime", common.PrettyDuration(totalRunSlotLoopDur),
 				"totalWaitChanDur", common.PrettyDuration(totalWaitChanDur),
@@ -525,6 +526,8 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			totalTryRunTxDur = 0
 			totalExecuteTxDur = 0
 			totalRunSlotLoopDur = 0
+			startTime = time.Now()
+			loopBeginTime = time.Now()
 			p.stopSlotChan <- struct{}{}
 			continue
 		case <-wakeupChan:
