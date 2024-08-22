@@ -85,16 +85,24 @@ type SlotState struct {
 }
 
 type ParallelTxResult struct {
-	executedIndex int32 // record the current execute number of the tx
-	slotIndex     int
-	txReq         *ParallelTxRequest
-	receipt       *types.Receipt
-	slotDB        *state.ParallelStateDB
-	gpSlot        *GasPool
-	evm           *vm.EVM
-	result        *ExecutionResult
-	originalNonce *uint64
-	err           error
+	executedIndex            int32 // record the current execute number of the tx
+	slotIndex                int
+	txReq                    *ParallelTxRequest
+	receipt                  *types.Receipt
+	slotDB                   *state.ParallelStateDB
+	gpSlot                   *GasPool
+	evm                      *vm.EVM
+	result                   *ExecutionResult
+	originalNonce            *uint64
+	err                      error
+	resultSendTime           time.Time
+	resultReceiveTime        time.Time
+	resultCheckTime          time.Time
+	resultConfirmTime        time.Time
+	resultSendStage2ChanTime time.Time
+	resultConfirmEndTime     time.Time
+	resultMergeTime          time.Time
+	resultPrefetchTime       time.Time
 }
 
 type ParallelTxRequest struct {
@@ -325,16 +333,24 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 
 	evm, result, err := applyTransactionStageExecution(txReq.msg, gpSlot, slotDB, vmenv, p.delayGasFee)
 	txResult := ParallelTxResult{
-		executedIndex: execNum,
-		slotIndex:     slotIndex,
-		txReq:         txReq,
-		receipt:       nil,
-		slotDB:        slotDB,
-		err:           err,
-		gpSlot:        gpSlot,
-		evm:           evm,
-		result:        result,
-		originalNonce: &on,
+		executedIndex:            execNum,
+		slotIndex:                slotIndex,
+		txReq:                    txReq,
+		receipt:                  nil,
+		slotDB:                   slotDB,
+		err:                      err,
+		gpSlot:                   gpSlot,
+		evm:                      evm,
+		result:                   result,
+		originalNonce:            &on,
+		resultSendTime:           time.Time{},
+		resultReceiveTime:        time.Time{},
+		resultCheckTime:          time.Time{},
+		resultConfirmTime:        time.Time{},
+		resultSendStage2ChanTime: time.Time{},
+		resultMergeTime:          time.Time{},
+		resultConfirmEndTime:     time.Time{},
+		resultPrefetchTime:       time.Time{},
 	}
 
 	if err == nil {
@@ -409,6 +425,7 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 				return nil
 			}
 			targetResult = results[len(results)-1]
+			targetResult.resultCheckTime = time.Now()
 			// last is the freshest, stack based priority
 			p.pendingConfirmResults[targetTxIndex] = p.pendingConfirmResults[targetTxIndex][:resultsLen-1] // remove from the queue
 		}
@@ -555,6 +572,7 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			if res == nil {
 				continue
 			}
+			res.resultSendTime = time.Now()
 			p.txResultChan <- res
 		}
 		totalTryRunTxDur += time.Since(innerLoopBeforeTime)
@@ -584,6 +602,7 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			if res == nil {
 				continue
 			}
+			res.resultSendTime = time.Now()
 			p.txResultChan <- res
 		}
 		totalTryRunTxDur += time.Since(stealLoopBeforeTime)
@@ -667,6 +686,7 @@ func (p *ParallelStateProcessor) handleTxResults() *ParallelTxResult {
 	if confirmedResult == nil {
 		return nil
 	}
+	confirmedResult.resultConfirmTime = time.Now()
 	// schedule stage 2 when new Tx has been merged, schedule once and ASAP
 	// stage 2,if all tx have been executed at least once, and its result has been received.
 	// in Stage 2, we will run check when main DB is advanced, i.e., new Tx result has been merged.
@@ -674,6 +694,7 @@ func (p *ParallelStateProcessor) handleTxResults() *ParallelTxResult {
 		p.nextStage2TxIndex = int(p.mergedTxIndex.Load()) + stage2CheckNumber
 		p.confirmStage2Chan <- int(p.mergedTxIndex.Load())
 	}
+	confirmedResult.resultSendStage2ChanTime = time.Now()
 	return confirmedResult
 }
 
@@ -706,6 +727,7 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 
 	// merge slotDB into mainDB
 	statedb.MergeSlotDB(result.slotDB, result.receipt, resultTxIndex, result.result.delayFees)
+	result.resultMergeTime = time.Now()
 	mergeDuration := time.Since(start) - conflictCheckDur
 	delayGasFee := result.result.delayFees
 	// add delayed gas fee
@@ -746,6 +768,7 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 		default:
 		}
 	}
+
 	// schedule prefetch once only when unconfirmedResult is valid
 	if result.err == nil {
 		if _, ok := p.txReqExecuteRecord[resultTxIndex]; !ok {
@@ -758,6 +781,23 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 		}
 		p.txReqExecuteRecord[resultTxIndex]++
 	}
+	result.resultConfirmEndTime = time.Now()
+	resultReceiveDur := result.resultReceiveTime.Sub(result.resultSendTime)
+	resultReceiveToPrefetch := result.resultPrefetchTime.Sub(result.resultReceiveTime)
+	resultPrefetchToCheck := result.resultCheckTime.Sub(result.resultPrefetchTime)
+	resultCheckToConfirm := result.resultConfirmTime.Sub(result.resultCheckTime)
+	resultSendStage2ChanDur := result.resultSendStage2ChanTime.Sub(result.resultConfirmTime)
+	resultMergeDur := result.resultMergeTime.Sub(result.resultSendStage2ChanTime)
+	resultTriggerChanDur := result.resultConfirmEndTime.Sub(result.resultMergeTime)
+	log.Info("ConfirmTxResult", "TX", result.txReq.txIndex,
+		"resultReceiveDur", common.PrettyDuration(resultReceiveDur),
+		"resultReceiveToPrefetch", common.PrettyDuration(resultReceiveToPrefetch),
+		"resultPrefetchToCheck", common.PrettyDuration(resultPrefetchToCheck),
+		"resultConfirmDur", common.PrettyDuration(resultCheckToConfirm),
+		"resultSendStage2ChanDur", common.PrettyDuration(resultSendStage2ChanDur),
+		"resultMergeDur", common.PrettyDuration(resultMergeDur),
+		"resultTriggerChainDur", common.PrettyDuration(resultTriggerChanDur))
+
 	return result, conflictCheckDur, mergeDuration
 }
 
@@ -898,12 +938,15 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			break
 		}
 		unconfirmedResult := <-p.txResultChan
+		unconfirmedResult.resultReceiveTime = time.Now()
 		unconfirmedTxIndex := unconfirmedResult.txReq.txIndex
 		if unconfirmedTxIndex <= int(p.mergedTxIndex.Load()) {
 			log.Debug("drop merged txReq", "unconfirmedTxIndex", unconfirmedTxIndex, "p.mergedTxIndex", p.mergedTxIndex.Load())
 			continue
 		}
 		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
+
+		unconfirmedResult.resultPrefetchTime = time.Now()
 
 		for {
 			mergeTimeStart := time.Now()
