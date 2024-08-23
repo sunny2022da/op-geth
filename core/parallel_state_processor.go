@@ -102,7 +102,8 @@ type ParallelTxResult struct {
 	resultSendStage2ChanTime time.Time
 	resultConfirmEndTime     time.Time
 	resultMergeTime          time.Time
-	resultPrefetchTime       time.Time
+	resultWaitTurnTime       time.Time
+	waitedExecuteDur         time.Duration
 }
 
 type ParallelTxRequest struct {
@@ -350,7 +351,7 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 		resultSendStage2ChanTime: time.Time{},
 		resultMergeTime:          time.Time{},
 		resultConfirmEndTime:     time.Time{},
-		resultPrefetchTime:       time.Time{},
+		resultWaitTurnTime:       time.Time{},
 	}
 
 	if err == nil {
@@ -381,7 +382,7 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 	}
 	p.unconfirmedResults.Store(txReq.txIndex, &txResult)
 	executeDur := time.Since(executeStart)
-	log.Debug("ExecuteInSlot", "txIndex", txReq.txIndex,
+	log.Info("ExecuteInSlot", "txIndex", txReq.txIndex,
 		"conflictIndex", conflictIndex, "baseIdx", slotDB.BaseTxIndex(),
 		"executeDur", executeDur, "New SlotDB Dur", newSlotDBDur, "prepareDur", prepareDur)
 	return &txResult
@@ -783,8 +784,8 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 	}
 	result.resultConfirmEndTime = time.Now()
 	resultReceiveDur := result.resultReceiveTime.Sub(result.resultSendTime)
-	resultReceiveToPrefetch := result.resultPrefetchTime.Sub(result.resultReceiveTime)
-	resultPrefetchToCheck := result.resultCheckTime.Sub(result.resultPrefetchTime)
+	resultReceiveToPrefetch := result.resultWaitTurnTime.Sub(result.resultReceiveTime)
+	resultPrefetchToCheck := result.resultCheckTime.Sub(result.resultWaitTurnTime)
 	resultCheckToConfirm := result.resultConfirmTime.Sub(result.resultCheckTime)
 	resultSendStage2ChanDur := result.resultSendStage2ChanTime.Sub(result.resultConfirmTime)
 	resultMergeDur := result.resultMergeTime.Sub(result.resultSendStage2ChanTime)
@@ -793,6 +794,7 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 		"resultReceiveDur", common.PrettyDuration(resultReceiveDur),
 		"resultReceiveToPrefetch", common.PrettyDuration(resultReceiveToPrefetch),
 		"resultPrefetchToCheck", common.PrettyDuration(resultPrefetchToCheck),
+		"resultWaitedExecDur", common.PrettyDuration(result.waitedExecuteDur),
 		"resultConfirmDur", common.PrettyDuration(resultCheckToConfirm),
 		"resultSendStage2ChanDur", common.PrettyDuration(resultSendStage2ChanDur),
 		"resultMergeDur", common.PrettyDuration(resultMergeDur),
@@ -939,21 +941,43 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 		unconfirmedResult := <-p.txResultChan
 		unconfirmedResult.resultReceiveTime = time.Now()
+		log.Info("Receive TxResult", "TX", unconfirmedResult.txReq.txIndex)
 		unconfirmedTxIndex := unconfirmedResult.txReq.txIndex
 		if unconfirmedTxIndex <= int(p.mergedTxIndex.Load()) {
 			log.Debug("drop merged txReq", "unconfirmedTxIndex", unconfirmedTxIndex, "p.mergedTxIndex", p.mergedTxIndex.Load())
 			continue
 		}
 		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
-
-		unconfirmedResult.resultPrefetchTime = time.Now()
-
+		unconfirmedResult.resultWaitTurnTime = time.Now()
+		nextTxIndex := p.mergedTxIndex.Load() + 1
+		if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
+			log.Info("Skip Confirm", "received result tx", unconfirmedResult.txReq.txIndex, "waiting tx", nextTxIndex)
+			continue
+		}
+		targetResults := p.pendingConfirmResults[int(nextTxIndex)]
+		r := targetResults[len(targetResults)-1]
+		r.waitedExecuteDur = time.Since(r.resultWaitTurnTime)
+		i := 0
 		for {
 			mergeTimeStart := time.Now()
+			log.Info("in Confirm Loop - before confrimTxResults", "loopCount", i,
+				"unconfirmedIndex", unconfirmedTxIndex,
+				"mergedIndex", p.mergedTxIndex.Load())
+			nextTxIndex = p.mergedTxIndex.Load() + 1
+			if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
+				break
+			}
 			result, conflictCheckDur, mergeDBDur := p.confirmTxResults(statedb, gp)
 			if result == nil {
 				break
+			} else {
+				log.Info("in Confirm Loop - after confrimTxResults", "loopCount", i,
+					"unconfirmedIndex", unconfirmedTxIndex,
+					"mergedIndex", p.mergedTxIndex.Load(),
+					"confirmedIndex", result.txReq.txIndex,
+					"result.err", result.err)
 			}
+			i++
 			// update tx result
 			if result.err != nil {
 				log.Error("ProcessParallel a failed tx", "resultSlotIndex", result.slotIndex,
