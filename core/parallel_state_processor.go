@@ -384,6 +384,7 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 	executeDur := time.Since(executeStart)
 	log.Info("ExecuteInSlot", "txIndex", txReq.txIndex,
 		"conflictIndex", conflictIndex, "baseIdx", slotDB.BaseTxIndex(),
+		"slotIndex", slotIndex, "staticSlot", txReq.staticSlotIndex,
 		"executeDur", executeDur, "New SlotDB Dur", newSlotDBDur, "prepareDur", prepareDur)
 	return &txResult
 }
@@ -622,15 +623,38 @@ func (p *ParallelStateProcessor) runQuickMergeSlotLoop(slotIndex int, slotType i
 		wakeupChan = curSlot.shadowWakeUpChan
 		stopChan = curSlot.shadowStopChan
 	}
+
+	var totalWaitChanDur time.Duration
+	var totalTryRunTxDur time.Duration
+	var totalExecuteTxDur time.Duration
+	var totalRunSlotLoopDur time.Duration
+
 	for {
+		loopBeginTime := time.Now()
+		startTime := time.Now()
 		select {
 		case <-stopChan:
+			totalRunSlotLoopDur = time.Since(startTime)
+			log.Warn("RunSlotLoopTimer", "slotIndex", slotIndex, "slotType", slotType,
+				"totalTime", common.PrettyDuration(totalRunSlotLoopDur),
+				"totalWaitChanDur", common.PrettyDuration(totalWaitChanDur),
+				"totalTryRunTxDur", common.PrettyDuration(totalTryRunTxDur),
+				"totalExecuteTxDur", common.PrettyDuration(totalExecuteTxDur))
+			totalWaitChanDur = 0
+			totalTryRunTxDur = 0
+			totalExecuteTxDur = 0
+			totalRunSlotLoopDur = 0
+			startTime = time.Now()
+			loopBeginTime = time.Now()
 			p.stopSlotChan <- struct{}{}
 			continue
 		case <-wakeupChan:
+			totalWaitChanDur += time.Since(loopBeginTime)
+			loopBeginTime = time.Now()
 		}
 
 		next := int(p.mergedTxIndex.Load()) + 1
+		innerLoopBeforeTime := time.Now()
 		for i := next; i < len(p.allTxReqs); i++ {
 			txReq := p.allTxReqs[next]
 			if txReq.txIndex <= int(p.mergedTxIndex.Load()) {
@@ -639,12 +663,17 @@ func (p *ParallelStateProcessor) runQuickMergeSlotLoop(slotIndex int, slotType i
 			if !atomic.CompareAndSwapInt32(&txReq.runnable, 1, 0) {
 				continue
 			}
+			log.Info("QuickMergeSlot Run", "slotIdx", slotIndex, "tx", txReq.txIndex)
+			timeBeforeExec := time.Now()
 			res := p.executeInSlot(slotIndex, txReq)
+			totalExecuteTxDur += time.Since(timeBeforeExec)
 			if res != nil {
+				res.resultSendTime = time.Now()
 				p.txResultChan <- res
 			}
 			break
 		}
+		totalTryRunTxDur += time.Since(innerLoopBeforeTime)
 	}
 }
 
