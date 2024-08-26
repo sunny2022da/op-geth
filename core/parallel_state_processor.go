@@ -186,7 +186,7 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	p.inConfirmStage2 = false
 
 	statedb.PrepareForParallel()
-	p.allTxReqs = make([]*ParallelTxRequest, 0)
+	p.allTxReqs = make([]*ParallelTxRequest, 0, txNum)
 	p.slotDBsToRelease = make([]*state.ParallelStateDB, 0, txNum)
 
 	stateDBsToRelease := p.slotDBsToRelease
@@ -202,6 +202,9 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	p.unconfirmedResults = new(sync.Map)
 	p.unconfirmedDBs = new(sync.Map)
 	p.pendingConfirmResults = make(map[int][]*ParallelTxResult, txNum)
+	for i := 0; i < txNum; i++ {
+		p.pendingConfirmResults[i] = make([]*ParallelTxResult, 1, 2)
+	}
 	p.txReqExecuteRecord = make(map[int]int, txNum)
 	p.txReqExecuteCount = 0
 	p.nextStage2TxIndex = 0
@@ -399,7 +402,9 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 		}
 	}
 
+	index := 0
 	for {
+		index++
 		// handle a targetTxIndex in a loop
 		var targetResult *ParallelTxResult
 		if isStage2 {
@@ -427,6 +432,7 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 				return nil
 			}
 			targetResult = results[len(results)-1]
+			log.Info("toConfirmTxIndex - setResultCheckTime", "targetTxIndex", targetTxIndex, "loop index", index)
 			targetResult.resultCheckTime = time.Now()
 			// last is the freshest, stack based priority
 			p.pendingConfirmResults[targetTxIndex] = p.pendingConfirmResults[targetTxIndex][:resultsLen-1] // remove from the queue
