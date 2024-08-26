@@ -998,10 +998,6 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			continue
 		}
 
-		log.Info("Start to check result", "TxIndex", int(nextTxIndex))
-		targetResults := p.pendingConfirmResults[int(nextTxIndex)]
-		r := targetResults[len(targetResults)-1]
-		r.resultGetProcessTime = time.Now()
 		i := 0
 		for {
 			mergeTimeStart := time.Now()
@@ -1012,6 +1008,10 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
 				break
 			}
+			log.Info("Start to check result", "TxIndex", int(nextTxIndex))
+			targetResults := p.pendingConfirmResults[int(nextTxIndex)]
+			r := targetResults[len(targetResults)-1]
+			r.resultGetProcessTime = time.Now()
 			result, conflictCheckDur, mergeDBDur := p.confirmTxResults(statedb, gp)
 			if result == nil {
 				break
