@@ -204,7 +204,7 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	p.pendingConfirmResults = make(map[int][]*ParallelTxResult, txNum)
 
 	for i := 0; i < txNum; i++ {
-		p.pendingConfirmResults[i] = make([]*ParallelTxResult, 1, 2)
+		p.pendingConfirmResults[i] = make([]*ParallelTxResult, 0, 2)
 	}
 	p.txReqExecuteRecord = make(map[int]int, txNum)
 	p.txReqExecuteCount = 0
