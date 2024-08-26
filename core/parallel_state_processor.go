@@ -963,21 +963,26 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	var totalConflictCheck time.Duration = 0
 	var totalMergeDBDur time.Duration = 0
 	// wait until all Txs have processed.
+	index := 0
 	for {
 		if len(commonTxs) == txNum {
 			// put it ahead of chan receive to avoid waiting for empty block
 			break
 		}
+		log.Info("Try get TxResult from channel", "loop idx", index)
+		index++
 		unconfirmedResult := <-p.txResultChan
 		unconfirmedResult.resultReceiveTime = time.Now()
-		log.Info("Receive TxResult", "TX", unconfirmedResult.txReq.txIndex)
+		log.Info("Receive TxResult", "TX", unconfirmedResult.txReq.txIndex, "loop idx", index)
 		unconfirmedTxIndex := unconfirmedResult.txReq.txIndex
 		if unconfirmedTxIndex <= int(p.mergedTxIndex.Load()) {
 			log.Debug("drop merged txReq", "unconfirmedTxIndex", unconfirmedTxIndex, "p.mergedTxIndex", p.mergedTxIndex.Load())
 			continue
 		}
-		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
+
 		unconfirmedResult.resultWaitTurnTime = time.Now()
+		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
+		// unconfirmedResult.resultWaitTurnTime = time.Now()
 		nextTxIndex := p.mergedTxIndex.Load() + 1
 		if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
 			log.Info("Skip Confirm", "received result tx", unconfirmedResult.txReq.txIndex, "waiting tx", nextTxIndex)
