@@ -201,8 +201,8 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	}
 	p.unconfirmedResults = new(sync.Map)
 	p.unconfirmedDBs = new(sync.Map)
-	p.pendingConfirmResults = make(map[int][]*ParallelTxResult, 200)
-	p.txReqExecuteRecord = make(map[int]int, 200)
+	p.pendingConfirmResults = make(map[int][]*ParallelTxResult, txNum)
+	p.txReqExecuteRecord = make(map[int]int, txNum)
 	p.txReqExecuteCount = 0
 	p.nextStage2TxIndex = 0
 }
