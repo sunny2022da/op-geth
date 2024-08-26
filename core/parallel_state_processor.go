@@ -103,7 +103,7 @@ type ParallelTxResult struct {
 	resultConfirmEndTime     time.Time
 	resultMergeTime          time.Time
 	resultWaitTurnTime       time.Time
-	waitedExecuteDur         time.Duration
+	resultGetProcessTime     time.Time
 }
 
 type ParallelTxRequest struct {
@@ -202,6 +202,7 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	p.unconfirmedResults = new(sync.Map)
 	p.unconfirmedDBs = new(sync.Map)
 	p.pendingConfirmResults = make(map[int][]*ParallelTxResult, txNum)
+
 	for i := 0; i < txNum; i++ {
 		p.pendingConfirmResults[i] = make([]*ParallelTxResult, 1, 2)
 	}
@@ -820,7 +821,8 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 	result.resultConfirmEndTime = time.Now()
 	resultReceiveDur := result.resultReceiveTime.Sub(result.resultSendTime)
 	resultReceiveToPrefetch := result.resultWaitTurnTime.Sub(result.resultReceiveTime)
-	resultPrefetchToCheck := result.resultCheckTime.Sub(result.resultWaitTurnTime)
+	resultWaitedToProcess := result.resultGetProcessTime.Sub(result.resultWaitTurnTime)
+	resultGetProcessToCheck := result.resultCheckTime.Sub(result.resultGetProcessTime)
 	resultCheckToConfirm := result.resultConfirmTime.Sub(result.resultCheckTime)
 	resultSendStage2ChanDur := result.resultSendStage2ChanTime.Sub(result.resultConfirmTime)
 	resultMergeDur := result.resultMergeTime.Sub(result.resultSendStage2ChanTime)
@@ -828,8 +830,8 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 	log.Info("ConfirmTxResult", "TX", result.txReq.txIndex,
 		"resultReceiveDur", common.PrettyDuration(resultReceiveDur),
 		"resultReceiveToPrefetch", common.PrettyDuration(resultReceiveToPrefetch),
-		"resultPrefetchToCheck", common.PrettyDuration(resultPrefetchToCheck),
-		"resultWaitedExecDur", common.PrettyDuration(result.waitedExecuteDur),
+		"resultWaitToProcess", common.PrettyDuration(resultWaitedToProcess),
+		"resultGetProcessToCheck", common.PrettyDuration(resultGetProcessToCheck),
 		"resultConfirmDur", common.PrettyDuration(resultCheckToConfirm),
 		"resultSendStage2ChanDur", common.PrettyDuration(resultSendStage2ChanDur),
 		"resultMergeDur", common.PrettyDuration(resultMergeDur),
@@ -881,6 +883,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	misc.EnsureCreate2Deployer(p.config, block.Time(), statedb)
 
 	allTxs := block.Transactions()
+	log.Info("resetState", "block", block.NumberU64(), "txNum", len(allTxs))
 	p.resetState(len(allTxs), statedb)
 
 	var (
@@ -994,9 +997,11 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			log.Info("Skip Confirm", "received result tx", unconfirmedResult.txReq.txIndex, "waiting tx", nextTxIndex)
 			continue
 		}
+
+		log.Info("Start to check result", "TxIndex", int(nextTxIndex))
 		targetResults := p.pendingConfirmResults[int(nextTxIndex)]
 		r := targetResults[len(targetResults)-1]
-		r.waitedExecuteDur = time.Since(r.resultWaitTurnTime)
+		r.resultGetProcessTime = time.Now()
 		i := 0
 		for {
 			mergeTimeStart := time.Now()
