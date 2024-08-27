@@ -452,6 +452,7 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 		} else {
 			// pop one result as target result.
 			result, ok := p.pendingConfirmResults.LoadAndDelete(targetTxIndex)
+			log.Debug("toConfirmTxIndex - loadAndDelete", "targetTxIndex", targetTxIndex, "ok", ok, "result", result)
 			if !ok {
 				return nil
 			}
@@ -479,6 +480,7 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 			}
 
 			if _, ok := p.pendingConfirmResults.Load(targetTxIndex); !ok { // this is the last result to check, and it is not valid
+				log.Debug("toConfirmTxIndex - pendingConfirmResults.Load when invalid", "targetTxIndex", targetTxIndex)
 				// This means that the tx has been executed more than blockTxCount times, so it exits with the error.
 				// TODO-dav: p.mergedTxIndex+2 may be more reasonable? - this is buggy for expected exit
 				if targetResult.txReq.txIndex == int(p.mergedTxIndex.Load())+1 &&
@@ -1020,16 +1022,15 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		prevResult, ok := p.pendingConfirmResults.Load(unconfirmedTxIndex)
 		if !ok || prevResult.(*ParallelTxResult).slotDB.BaseTxIndex() < unconfirmedResult.slotDB.BaseTxIndex() {
 			// update to latest
+			log.Debug("update pendingConfirmResult", "tx", unconfirmedTxIndex)
 			p.pendingConfirmResults.Store(unconfirmedTxIndex, unconfirmedResult)
-		}
-
-		/*
-			nextTxIndex := p.mergedTxIndex.Load() + 1
-			if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
-				log.Info("Skip Confirm", "received result tx", unconfirmedResult.txReq.txIndex, "waiting tx", nextTxIndex)
-				continue
+			if _, o := p.pendingConfirmResults.Load(unconfirmedTxIndex); !o {
+				log.Debug("update pendingConfirmResult FAIL!!", "tx", unconfirmedTxIndex)
+			} else {
+				log.Debug(fmt.Sprintf("update pendingConfirmResult PASS!!, tx=%d, p=%p, pendingResults=%p\n",
+					unconfirmedTxIndex, p, p.pendingConfirmResults))
 			}
-		*/
+		}
 	}
 
 	/*
@@ -1149,6 +1150,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 		mergeTimeStart := time.Now()
 		nextTxIndex := p.mergedTxIndex.Load() + 1
 		if pendingResult, ok := p.pendingConfirmResults.Load(nextTxIndex); !ok {
+			log.Debug(fmt.Sprintf("handle pending result loop - no result - p=%p, p.pendingConfirmResults=%p, nextTxIndex=%d, loopindex=%d\n", p, p.pendingConfirmResults, nextTxIndex, i))
 			i++
 			continue
 		} else {
