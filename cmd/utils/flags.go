@@ -2019,7 +2019,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		} else if numCpu == 1 {
 			parallelNum = 1 // single CPU core
 		} else {
-			parallelNum = numCpu - 2
+			parallelNum = numCpu - 4
 		}
 		cfg.ParallelTxNum = parallelNum
 	}

@@ -31,6 +31,18 @@ var (
 	FallbackToSerialProcessorErr = errors.New("fallback to serial processor")
 )
 
+type BlockMetrics struct {
+	mutex              sync.RWMutex
+	mergeDur           time.Duration
+	totalConflictCheck time.Duration
+	totalMergeDBDur    time.Duration
+}
+
+type ResultHandleEnv struct {
+	statedb *state.StateDB
+	gp      *GasPool
+}
+
 type ParallelStateProcessor struct {
 	StateProcessor
 	parallelNum           int          // leave a CPU to dispatcher
@@ -54,6 +66,13 @@ type ParallelStateProcessor struct {
 	targetStage2Count     int
 	nextStage2TxIndex     int
 	delayGasFee           bool
+	commonTxs             []*types.Transaction
+	receipts              types.Receipts
+	error                 error
+	resultMutex           sync.RWMutex
+	blockMetrics          BlockMetrics
+	resultProcessChan     chan ResultHandleEnv
+	resultMergedChan      chan struct{}
 }
 
 func newParallelStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine, parallelNum int) *ParallelStateProcessor {
@@ -132,6 +151,9 @@ func (p *ParallelStateProcessor) init() {
 	p.stopConfirmChan = make(chan struct{}, 1)
 	p.stopConfirmStage2Chan = make(chan struct{}, 1)
 
+	p.resultProcessChan = make(chan ResultHandleEnv, 1)
+	p.resultMergedChan = make(chan struct{}, 1)
+
 	p.slotState = make([]*SlotState, p.parallelNum)
 	quickMergeNum := p.parallelNum / 2
 	for i := 0; i < p.parallelNum-quickMergeNum; i++ {
@@ -174,6 +196,11 @@ func (p *ParallelStateProcessor) init() {
 	go func() {
 		p.runConfirmStage2Loop()
 	}()
+
+	go func() {
+		p.handlePendingResultLoop()
+	}()
+
 }
 
 // resetState clear slot state for each block.
@@ -864,10 +891,10 @@ func (p *ParallelStateProcessor) doCleanUp() {
 // Process implements BEP-130 Parallel Transaction Execution
 func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg vm.Config) (types.Receipts, []*types.Log, uint64, error) {
 	var (
-		receipts types.Receipts
-		usedGas  = new(uint64)
-		header   = block.Header()
-		gp       = new(GasPool).AddGas(block.GasLimit())
+		// receipts types.Receipts
+		usedGas = new(uint64)
+		header  = block.Header()
+		gp      = new(GasPool).AddGas(block.GasLimit())
 	)
 
 	procTime := time.Now()
@@ -902,7 +929,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	txNum := len(allTxs)
 	latestExcludedTx := -1
 	// Iterate over and process the individual transactions
-	commonTxs := make([]*types.Transaction, 0, txNum)
+	p.commonTxs = make([]*types.Transaction, 0, txNum)
+	p.receipts = make([]*types.Receipt, 0, txNum)
 	// var txReqs []*ParallelTxRequest
 	for i, tx := range allTxs {
 		// can be moved it into slot for efficiency, but signer is not concurrent safe
@@ -968,13 +996,13 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	}
 
 	dispatchTime := time.Now()
-	var mergeDur time.Duration = 0
-	var totalConflictCheck time.Duration = 0
-	var totalMergeDBDur time.Duration = 0
 	// wait until all Txs have processed.
 	index := 0
+	// kick off the result handler.
+	p.resultProcessChan <- ResultHandleEnv{statedb: statedb, gp: gp}
+
 	for {
-		if len(commonTxs) == txNum {
+		if len(p.commonTxs) == txNum {
 			// put it ahead of chan receive to avoid waiting for empty block
 			break
 		}
@@ -991,69 +1019,80 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 
 		unconfirmedResult.resultWaitTurnTime = time.Now()
 		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
-		// unconfirmedResult.resultWaitTurnTime = time.Now()
-		nextTxIndex := p.mergedTxIndex.Load() + 1
-		if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
-			log.Info("Skip Confirm", "received result tx", unconfirmedResult.txReq.txIndex, "waiting tx", nextTxIndex)
-			continue
-		}
-
-		i := 0
-		for {
-			mergeTimeStart := time.Now()
-			log.Info("in Confirm Loop - before confrimTxResults", "loopCount", i,
-				"unconfirmedIndex", unconfirmedTxIndex,
-				"mergedIndex", p.mergedTxIndex.Load())
-			nextTxIndex = p.mergedTxIndex.Load() + 1
+		/*
+			nextTxIndex := p.mergedTxIndex.Load() + 1
 			if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
-				break
+				log.Info("Skip Confirm", "received result tx", unconfirmedResult.txReq.txIndex, "waiting tx", nextTxIndex)
+				continue
 			}
-			log.Info("Start to check result", "TxIndex", int(nextTxIndex))
-			targetResults := p.pendingConfirmResults[int(nextTxIndex)]
-			r := targetResults[len(targetResults)-1]
-			r.resultGetProcessTime = time.Now()
-			result, conflictCheckDur, mergeDBDur := p.confirmTxResults(statedb, gp)
-			if result == nil {
-				break
-			} else {
-				log.Info("in Confirm Loop - after confrimTxResults", "loopCount", i,
-					"unconfirmedIndex", unconfirmedTxIndex,
-					"mergedIndex", p.mergedTxIndex.Load(),
-					"confirmedIndex", result.txReq.txIndex,
-					"result.err", result.err)
-			}
-			i++
-			// update tx result
-			if result.err != nil {
-				log.Error("ProcessParallel a failed tx", "resultSlotIndex", result.slotIndex,
-					"resultTxIndex", result.txReq.txIndex, "result.err", result.err)
-				p.doCleanUp()
-				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", result.txReq.txIndex, result.txReq.tx.Hash().Hex(), result.err)
-			}
-			commonTxs = append(commonTxs, result.txReq.tx)
-			receipts = append(receipts, result.receipt)
-			mergeTime := time.Since(mergeTimeStart)
-			mergeDur += mergeTime
-			totalConflictCheck += conflictCheckDur
-			totalMergeDBDur += mergeDBDur
-		}
+		*/
 	}
 
+	/*
+	   		i := 0
+	   		for {
+	   			mergeTimeStart := time.Now()
+	   			log.Info("in Confirm Loop - before confrimTxResults",
+	   				"loopCount", i,
+	   				"mergedIndex", p.mergedTxIndex.Load())
+	   			nextTxIndex = p.mergedTxIndex.Load() + 1
+	   			if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
+	   				break
+	   			}
+	   			log.Info("Start to check result", "TxIndex", int(nextTxIndex))
+	   			targetResults := p.pendingConfirmResults[int(nextTxIndex)]
+	   			r := targetResults[len(targetResults)-1]
+	   			r.resultGetProcessTime = time.Now()
+	   			result, conflictCheckDur, mergeDBDur := p.confirmTxResults(statedb, gp)
+	   			if result == nil {
+	   				break
+	   			} else {
+	   				log.Info("in Confirm Loop - after confrimTxResults", "loopCount", i,
+	   					"unconfirmedIndex", unconfirmedTxIndex,
+	   					"mergedIndex", p.mergedTxIndex.Load(),
+	   					"confirmedIndex", result.txReq.txIndex,
+	   					"result.err", result.err)
+	   			}
+	   			i++
+	   			// update tx result
+	   			if result.err != nil {
+	   				log.Error("ProcessParallel a failed tx", "resultSlotIndex", result.slotIndex,
+	   					"resultTxIndex", result.txReq.txIndex, "result.err", result.err)
+	   				p.doCleanUp()
+	   				return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", result.txReq.txIndex, result.txReq.tx.Hash().Hex(), result.err)
+	   			}
+	   			commonTxs = append(commonTxs, result.txReq.tx)
+	   			receipts = append(receipts, result.receipt)
+	   			mergeTime := time.Since(mergeTimeStart)
+	   			mergeDur += mergeTime
+	   			totalConflictCheck += conflictCheckDur
+	   			totalMergeDBDur += mergeDBDur
+	   		}
+	   }
+	*/
+
+	<-p.resultMergedChan
+	log.Info("All Txs processed", "loop idx", index, "block", block.NumberU64())
+
 	resultProcessTime := time.Now()
+	if p.error != nil {
+		p.doCleanUp()
+		return nil, nil, 0, p.error
+	}
 	// clean up when the block is processed
 	p.doCleanUp()
 
 	// len(commonTxs) could be 0, such as: https://bscscan.com/block/14580486
-	if len(commonTxs) > 0 && p.debugConflictRedoNum > 0 {
+	if len(p.commonTxs) > 0 && p.debugConflictRedoNum > 0 {
 		log.Info("ProcessParallel tx all done", "block", header.Number, "usedGas", *usedGas,
 			"txNum", txNum,
-			"len(commonTxs)", len(commonTxs),
+			"len(commonTxs)", len(p.commonTxs),
 			"conflictNum", p.debugConflictRedoNum,
-			"redoRate(%)", 100*(p.debugConflictRedoNum)/len(commonTxs),
+			"redoRate(%)", 100*(p.debugConflictRedoNum)/len(p.commonTxs),
 			"txDAG", txDAG != nil)
 	}
 	if metrics.EnabledExpensive {
-		parallelTxNumMeter.Mark(int64(len(commonTxs)))
+		parallelTxNumMeter.Mark(int64(len(p.commonTxs)))
 		parallelConflictTxNumMeter.Mark(int64(p.debugConflictRedoNum))
 	}
 
@@ -1063,10 +1102,10 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		return nil, nil, 0, errors.New("withdrawals before shanghai")
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.engine.Finalize(p.bc, header, statedb, commonTxs, block.Uncles(), withdrawals)
+	p.engine.Finalize(p.bc, header, statedb, p.commonTxs, block.Uncles(), withdrawals)
 
 	var allLogs []*types.Log
-	for _, receipt := range receipts {
+	for _, receipt := range p.receipts {
 		allLogs = append(allLogs, receipt.Logs...)
 	}
 	postProcessTime := time.Now()
@@ -1075,13 +1114,69 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		"InitTime", common.PrettyDuration(initialTime.Sub(procTime)),
 		"DispatchTime", common.PrettyDuration(dispatchTime.Sub(initialTime)),
 		"resultProcessTime", common.PrettyDuration(resultProcessTime.Sub(dispatchTime)),
-		"mergeTime", common.PrettyDuration(mergeDur),
-		"totalConflictCheckDur", common.PrettyDuration(totalConflictCheck),
-		"totalMergeDBDur", common.PrettyDuration(totalMergeDBDur),
+		"mergeTime", common.PrettyDuration(p.blockMetrics.mergeDur),
+		"totalConflictCheckDur", common.PrettyDuration(p.blockMetrics.totalConflictCheck),
+		"totalMergeDBDur", common.PrettyDuration(p.blockMetrics.totalMergeDBDur),
 		"postProcessTime", common.PrettyDuration(postProcessTime.Sub(resultProcessTime)),
 		"wholeTime", common.PrettyDuration(postProcessTime.Sub(procTime)))
 
-	return receipts, allLogs, *usedGas, nil
+	return p.receipts, allLogs, *usedGas, nil
+}
+
+func (p *ParallelStateProcessor) handlePendingResultLoop() {
+	var info ResultHandleEnv
+	select {
+	case info = <-p.resultProcessChan:
+	}
+	i := 0
+	// busy waiting.
+	for {
+		statedb := info.statedb
+		gp := info.gp
+		if len(p.commonTxs) == len(p.allTxReqs) {
+			p.resultMergedChan <- struct{}{}
+			break
+		}
+		mergeTimeStart := time.Now()
+		nextTxIndex := p.mergedTxIndex.Load() + 1
+		if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
+			i++
+			continue
+		}
+		log.Info("Start to check result", "TxIndex", int(nextTxIndex))
+		targetResults := p.pendingConfirmResults[int(nextTxIndex)]
+		r := targetResults[len(targetResults)-1]
+		r.resultGetProcessTime = time.Now()
+		result, conflictCheckDur, mergeDBDur := p.confirmTxResults(statedb, gp)
+		if result == nil {
+			break
+		} else {
+			log.Info("in Confirm Loop - after confrimTxResults", "loopCount", i,
+				"mergedIndex", p.mergedTxIndex.Load(),
+				"confirmedIndex", result.txReq.txIndex,
+				"result.err", result.err)
+		}
+		i++
+
+		p.resultMutex.Lock()
+		// update tx result
+		if result.err != nil {
+			log.Error("ProcessParallel a failed tx", "resultSlotIndex", result.slotIndex,
+				"resultTxIndex", result.txReq.txIndex, "result.err", result.err)
+			p.error = fmt.Errorf("could not apply tx %d [%v]: %w", result.txReq.txIndex, result.txReq.tx.Hash().Hex(), result.err)
+		}
+		p.commonTxs = append(p.commonTxs, result.txReq.tx)
+		p.receipts = append(p.receipts, result.receipt)
+		mergeTime := time.Since(mergeTimeStart)
+
+		p.blockMetrics.mutex.Lock()
+		p.blockMetrics.mergeDur += mergeTime
+		p.blockMetrics.totalConflictCheck += conflictCheckDur
+		p.blockMetrics.totalMergeDBDur += mergeDBDur
+		p.blockMetrics.mutex.Unlock()
+
+		p.resultMutex.Unlock()
+	}
 }
 
 func applyTransactionStageExecution(msg *Message, gp *GasPool, statedb *state.ParallelStateDB, evm *vm.EVM, delayGasFee bool) (*vm.EVM, *ExecutionResult, error) {
