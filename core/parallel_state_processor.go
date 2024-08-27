@@ -48,11 +48,11 @@ type ParallelStateProcessor struct {
 	parallelNum           int          // leave a CPU to dispatcher
 	slotState             []*SlotState // idle, or pending messages
 	allTxReqs             []*ParallelTxRequest
-	txResultChan          chan *ParallelTxResult      // to notify dispatcher that a tx is done
-	mergedTxIndex         atomic.Int32                // the latest finalized tx index
-	pendingConfirmResults map[int][]*ParallelTxResult // tx could be executed several times, with several result to check
-	unconfirmedResults    *sync.Map                   // for stage2 confirm, since pendingConfirmResults can not be accessed in stage2 loop
-	unconfirmedDBs        *sync.Map                   // intermediate store of slotDB that is not verified
+	txResultChan          chan *ParallelTxResult // to notify dispatcher that a tx is done
+	mergedTxIndex         atomic.Int32           // the latest finalized tx index
+	pendingConfirmResults *sync.Map              // tx could be executed several times, just test the lates
+	unconfirmedResults    *sync.Map              // for stage2 confirm, since pendingConfirmResults can not be accessed in stage2 loop
+	unconfirmedDBs        *sync.Map              // intermediate store of slotDB that is not verified
 	slotDBsToRelease      []*state.ParallelStateDB
 	stopSlotChan          chan struct{}
 	stopConfirmChan       chan struct{}
@@ -228,11 +228,8 @@ func (p *ParallelStateProcessor) resetState(txNum int, statedb *state.StateDB) {
 	}
 	p.unconfirmedResults = new(sync.Map)
 	p.unconfirmedDBs = new(sync.Map)
-	p.pendingConfirmResults = make(map[int][]*ParallelTxResult, txNum)
+	p.pendingConfirmResults = new(sync.Map) // make(map[int][]*ParallelTxResult, txNum)
 
-	for i := 0; i < txNum; i++ {
-		p.pendingConfirmResults[i] = make([]*ParallelTxResult, 0, 2)
-	}
 	p.txReqExecuteRecord = make(map[int]int, txNum)
 	p.txReqExecuteCount = 0
 	p.nextStage2TxIndex = 0
@@ -454,16 +451,13 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 			}
 		} else {
 			// pop one result as target result.
-			results := p.pendingConfirmResults[targetTxIndex]
-			resultsLen := len(results)
-			if resultsLen == 0 { // there is no pending result can be verified, break and wait for incoming results
+			result, ok := p.pendingConfirmResults.LoadAndDelete(targetTxIndex)
+			if !ok {
 				return nil
 			}
-			targetResult = results[len(results)-1]
+			targetResult = result.(*ParallelTxResult)
 			log.Info("toConfirmTxIndex - setResultCheckTime", "targetTxIndex", targetTxIndex, "loop index", index)
 			targetResult.resultCheckTime = time.Now()
-			// last is the freshest, stack based priority
-			p.pendingConfirmResults[targetTxIndex] = p.pendingConfirmResults[targetTxIndex][:resultsLen-1] // remove from the queue
 		}
 
 		valid := p.toConfirmTxIndexResult(targetResult, isStage2)
@@ -484,7 +478,7 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 				return nil
 			}
 
-			if len(p.pendingConfirmResults[targetTxIndex]) == 0 { // this is the last result to check, and it is not valid
+			if _, ok := p.pendingConfirmResults.Load(targetTxIndex); !ok { // this is the last result to check, and it is not valid
 				// This means that the tx has been executed more than blockTxCount times, so it exits with the error.
 				// TODO-dav: p.mergedTxIndex+2 may be more reasonable? - this is buggy for expected exit
 				if targetResult.txReq.txIndex == int(p.mergedTxIndex.Load())+1 &&
@@ -1000,9 +994,14 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	index := 0
 	// kick off the result handler.
 	p.resultProcessChan <- ResultHandleEnv{statedb: statedb, gp: gp}
-
+	p.resultMutex.RLock()
+	commonsLen := len(p.commonTxs)
+	p.resultMutex.RUnlock()
 	for {
-		if len(p.commonTxs) == txNum {
+		p.resultMutex.RLock()
+		commonsLen = len(p.commonTxs)
+		p.resultMutex.RUnlock()
+		if commonsLen == txNum {
 			// put it ahead of chan receive to avoid waiting for empty block
 			break
 		}
@@ -1018,7 +1017,12 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 
 		unconfirmedResult.resultWaitTurnTime = time.Now()
-		p.pendingConfirmResults[unconfirmedTxIndex] = append(p.pendingConfirmResults[unconfirmedTxIndex], unconfirmedResult)
+		prevResult, ok := p.pendingConfirmResults.Load(unconfirmedTxIndex)
+		if !ok || prevResult.(*ParallelTxResult).slotDB.BaseTxIndex() < unconfirmedResult.slotDB.BaseTxIndex() {
+			// update to latest
+			p.pendingConfirmResults.Store(unconfirmedTxIndex, unconfirmedResult)
+		}
+
 		/*
 			nextTxIndex := p.mergedTxIndex.Load() + 1
 			if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
@@ -1082,17 +1086,19 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// clean up when the block is processed
 	p.doCleanUp()
 
+	p.resultMutex.RLock()
 	// len(commonTxs) could be 0, such as: https://bscscan.com/block/14580486
-	if len(p.commonTxs) > 0 && p.debugConflictRedoNum > 0 {
+	if commonsLen > 0 && p.debugConflictRedoNum > 0 {
 		log.Info("ProcessParallel tx all done", "block", header.Number, "usedGas", *usedGas,
 			"txNum", txNum,
-			"len(commonTxs)", len(p.commonTxs),
+			"len(commonTxs)", commonsLen,
 			"conflictNum", p.debugConflictRedoNum,
-			"redoRate(%)", 100*(p.debugConflictRedoNum)/len(p.commonTxs),
+			"redoRate(%)", 100*(p.debugConflictRedoNum)/commonsLen,
 			"txDAG", txDAG != nil)
 	}
+	p.resultMutex.RUnlock()
 	if metrics.EnabledExpensive {
-		parallelTxNumMeter.Mark(int64(len(p.commonTxs)))
+		parallelTxNumMeter.Mark(int64(commonsLen))
 		parallelConflictTxNumMeter.Mark(int64(p.debugConflictRedoNum))
 	}
 
@@ -1133,20 +1139,24 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 	for {
 		statedb := info.statedb
 		gp := info.gp
-		if len(p.commonTxs) == len(p.allTxReqs) {
+		p.resultMutex.RLock()
+		commonsLen := len(p.commonTxs)
+		p.resultMutex.RUnlock()
+		if commonsLen == len(p.allTxReqs) {
 			p.resultMergedChan <- struct{}{}
 			break
 		}
 		mergeTimeStart := time.Now()
 		nextTxIndex := p.mergedTxIndex.Load() + 1
-		if len(p.pendingConfirmResults[int(nextTxIndex)]) == 0 {
+		if pendingResult, ok := p.pendingConfirmResults.Load(nextTxIndex); !ok {
 			i++
 			continue
+		} else {
+			r := pendingResult.(*ParallelTxResult)
+			r.resultGetProcessTime = time.Now()
 		}
 		log.Info("Start to check result", "TxIndex", int(nextTxIndex))
-		targetResults := p.pendingConfirmResults[int(nextTxIndex)]
-		r := targetResults[len(targetResults)-1]
-		r.resultGetProcessTime = time.Now()
+
 		result, conflictCheckDur, mergeDBDur := p.confirmTxResults(statedb, gp)
 		if result == nil {
 			break
