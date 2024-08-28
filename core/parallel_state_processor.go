@@ -73,7 +73,6 @@ type ParallelStateProcessor struct {
 	resultMutex           sync.RWMutex
 	blockMetrics          BlockMetrics
 	resultProcessChan     chan *ResultHandleEnv
-	resultMergedChan      chan struct{}
 	resultAppendChan      chan struct{}
 }
 
@@ -154,7 +153,6 @@ func (p *ParallelStateProcessor) init() {
 	p.stopConfirmStage2Chan = make(chan struct{}, 1)
 
 	p.resultProcessChan = make(chan *ResultHandleEnv, 1)
-	p.resultMergedChan = make(chan struct{}, 1)
 	p.resultAppendChan = make(chan struct{}, 20000)
 
 	p.slotState = make([]*SlotState, p.parallelNum)
@@ -887,15 +885,6 @@ func (p *ParallelStateProcessor) doCleanUp() {
 	// 3.make sure the confirmation routine is stopped
 	p.stopConfirmStage2Chan <- struct{}{}
 	<-p.stopSlotChan
-	// 4.discard merge append sig if any
-	for {
-		if len(p.resultMergedChan) > 0 {
-			<-p.resultMergedChan
-			continue
-		}
-		break
-	}
-
 }
 
 // Process implements BEP-130 Parallel Transaction Execution
@@ -1053,9 +1042,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 	}
 
-	<-p.resultMergedChan
 	log.Info("All Txs processed", "loop idx", index, "block", block.NumberU64())
-
 	resultProcessTime := time.Now()
 	if p.error != nil {
 		p.doCleanUp()
@@ -1128,7 +1115,6 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 		if p.error != nil || p.mergedTxIndex.Load()+1 == int32(txCount) {
 			log.Info("handlePendingResult merged all")
 			p.txResultChan <- &ParallelTxResult{txReq: nil, result: nil}
-			p.resultMergedChan <- struct{}{}
 			// clear the pending chan.
 			for len(p.resultAppendChan) > 0 {
 				<-p.resultAppendChan
@@ -1143,7 +1129,6 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 			if p.error != nil || nextTxIndex == txCount {
 				log.Debug("handle pending result break from loop", "nextTxIndex", nextTxIndex, "txCount", txCount, "p.error", p.error)
 				p.txResultChan <- &ParallelTxResult{txReq: nil, result: nil}
-				p.resultMergedChan <- struct{}{}
 				// clear the pending chan.
 				for len(p.resultAppendChan) > 0 {
 					<-p.resultAppendChan
