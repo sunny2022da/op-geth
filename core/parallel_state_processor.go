@@ -1160,6 +1160,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 				log.Error("ProcessParallel a failed tx", "resultSlotIndex", result.slotIndex,
 					"resultTxIndex", result.txReq.txIndex, "result.err", result.err)
 				p.error = fmt.Errorf("could not apply tx %d [%v]: %w", result.txReq.txIndex, result.txReq.tx.Hash().Hex(), result.err)
+				p.resultMutex.Unlock()
 				continue
 			}
 			p.commonTxs = append(p.commonTxs, result.txReq.tx)
