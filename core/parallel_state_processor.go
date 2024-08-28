@@ -528,6 +528,18 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 				interrupted = true
 				break
 			}
+
+			// first try next to be merged req.
+			nextMergeReq := p.allTxReqs[p.mergedTxIndex.Load()+1]
+			if atomic.CompareAndSwapInt32(&nextMergeReq.runnable, 1, 0) {
+				// execute.
+				res := p.executeInSlot(slotIndex, nextMergeReq)
+				if res != nil {
+					p.txResultChan <- res
+				}
+			}
+
+			// try the next req in loop sequence.
 			if !atomic.CompareAndSwapInt32(&txReq.runnable, 1, 0) {
 				continue
 			}
@@ -551,6 +563,16 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			if atomic.LoadInt32(&curSlot.activatedType) != slotType {
 				interrupted = true
 				break
+			}
+
+			// first try next to be merged req.
+			nextMergeReq := p.allTxReqs[p.mergedTxIndex.Load()+1]
+			if atomic.CompareAndSwapInt32(&nextMergeReq.runnable, 1, 0) {
+				// execute.
+				res := p.executeInSlot(slotIndex, nextMergeReq)
+				if res != nil {
+					p.txResultChan <- res
+				}
 			}
 
 			if !atomic.CompareAndSwapInt32(&stealTxReq.runnable, 1, 0) {
