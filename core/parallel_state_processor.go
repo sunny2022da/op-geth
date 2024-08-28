@@ -998,7 +998,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// wait until all Txs have processed.
 	index := 0
 	// kick off the result handler.
-	log.Debug("Process send Env", "statedb", statedb.TxIndex(), "gp", gp.String())
+	// log.Debug("Process send Env", "statedb", statedb.TxIndex(), "gp", gp.String())
 	p.resultProcessChan <- &ResultHandleEnv{statedb: statedb, gp: gp, txCount: len(p.allTxReqs)}
 
 	for {
@@ -1006,21 +1006,21 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			// put it ahead of chan receive to avoid waiting for empty block
 			break
 		}
-		log.Info("Try get TxResult from channel", "loop idx", index)
+		//log.Info("Try get TxResult from channel", "loop idx", index)
 		index++
 		unconfirmedResult := <-p.txResultChan
 		if unconfirmedResult.txReq == nil {
-			log.Info("Get nil unconfirmed result", "mergedIndex", p.mergedTxIndex.Load(), "lenTxs", len(p.allTxReqs))
+			//log.Info("Get nil unconfirmed result", "mergedIndex", p.mergedTxIndex.Load(), "lenTxs", len(p.allTxReqs))
 			if int(p.mergedTxIndex.Load())+1 == len(p.allTxReqs) {
 				// all tx results are merged.
 				break
 			}
 		}
 		unconfirmedResult.resultReceiveTime = time.Now()
-		log.Info("Receive TxResult", "TX", unconfirmedResult.txReq.txIndex, "loop idx", index)
+		// log.Info("Receive TxResult", "TX", unconfirmedResult.txReq.txIndex, "loop idx", index)
 		unconfirmedTxIndex := unconfirmedResult.txReq.txIndex
 		if unconfirmedTxIndex <= int(p.mergedTxIndex.Load()) {
-			log.Debug("drop merged txReq", "unconfirmedTxIndex", unconfirmedTxIndex, "p.mergedTxIndex", p.mergedTxIndex.Load())
+			// log.Debug("drop merged txReq", "unconfirmedTxIndex", unconfirmedTxIndex, "p.mergedTxIndex", p.mergedTxIndex.Load())
 			continue
 		}
 
@@ -1029,15 +1029,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		log.Debug("try update pendingConfirmResult", "ok", ok, "prevResult", prevResult)
 		if !ok || prevResult.(*ParallelTxResult).slotDB.BaseTxIndex() < unconfirmedResult.slotDB.BaseTxIndex() {
 			// update to latest
-			log.Debug("update pendingConfirmResult", "tx", unconfirmedTxIndex)
+			// log.Debug("update pendingConfirmResult", "tx", unconfirmedTxIndex)
 			p.pendingConfirmResults.Store(unconfirmedTxIndex, unconfirmedResult)
-			if r, o := p.pendingConfirmResults.Load(unconfirmedTxIndex); !o {
-				log.Debug("update pendingConfirmResult FAIL!!", "tx", unconfirmedTxIndex)
-			} else {
-				res := r.(*ParallelTxResult)
-				log.Debug(fmt.Sprintf("update pendingConfirmResult PASS!!, tx=%d, p=%p, pendingResults=%p, res.Index=%d\n",
-					unconfirmedTxIndex, p, p.pendingConfirmResults, res.txReq.txIndex))
-			}
 			p.resultAppendChan <- struct{}{}
 		}
 	}
@@ -1113,7 +1106,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 
 		// if all merged, notify the main routine. continue to wait for next block.
 		if p.error != nil || p.mergedTxIndex.Load()+1 == int32(txCount) {
-			log.Info("handlePendingResult merged all")
+			// log.Info("handlePendingResult merged all")
 			p.txResultChan <- &ParallelTxResult{txReq: nil, result: nil}
 			// clear the pending chan.
 			for len(p.resultAppendChan) > 0 {
@@ -1127,7 +1120,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 			mergeTimeStart := time.Now()
 			nextTxIndex := int(p.mergedTxIndex.Load()) + 1
 			if p.error != nil || nextTxIndex == txCount {
-				log.Debug("handle pending result break from loop", "nextTxIndex", nextTxIndex, "txCount", txCount, "p.error", p.error)
+				// log.Debug("handle pending result break from loop", "nextTxIndex", nextTxIndex, "txCount", txCount, "p.error", p.error)
 				p.txResultChan <- &ParallelTxResult{txReq: nil, result: nil}
 				// clear the pending chan.
 				for len(p.resultAppendChan) > 0 {
@@ -1136,7 +1129,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 				break
 			}
 			if pendingResult, ok := p.pendingConfirmResults.Load(nextTxIndex); !ok {
-				log.Debug(fmt.Sprintf("handle pending result loop - no result - p=%p, p.pendingConfirmResults=%p, nextTxIndex=%d, loopindex=%d\n", p, p.pendingConfirmResults, nextTxIndex, i))
+				//log.Debug(fmt.Sprintf("handle pending result loop - no result - p=%p, p.pendingConfirmResults=%p, nextTxIndex=%d, loopindex=%d\n", p, p.pendingConfirmResults, nextTxIndex, i))
 				i++
 				break
 			} else {
