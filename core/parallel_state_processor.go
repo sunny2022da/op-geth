@@ -599,6 +599,25 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 				interrupted = true
 				break
 			}
+
+			// first try next to be merged req.
+
+			nextIdx := p.mergedTxIndex.Load() + 1
+			if nextIdx < int32(len(p.allTxReqs)) {
+				nextMergeReq := p.allTxReqs[nextIdx]
+				if atomic.CompareAndSwapInt32(&nextMergeReq.runnable, 1, 0) {
+					// execute.
+					timeBeforeExec := time.Now()
+					res := p.executeInSlot(slotIndex, nextMergeReq)
+					totalExecuteTxDur += time.Since(timeBeforeExec)
+					if res != nil {
+						res.resultSendTime = time.Now()
+						p.txResultChan <- res
+					}
+				}
+			}
+
+			// try the next req in loop sequence.
 			if !atomic.CompareAndSwapInt32(&txReq.runnable, 1, 0) {
 				continue
 			}
@@ -627,6 +646,22 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			if atomic.LoadInt32(&curSlot.activatedType) != slotType {
 				interrupted = true
 				break
+			}
+
+			// first try next to be merged req.
+			nextIdx := p.mergedTxIndex.Load() + 1
+			if nextIdx < int32(len(p.allTxReqs)) {
+				nextMergeReq := p.allTxReqs[nextIdx]
+				if atomic.CompareAndSwapInt32(&nextMergeReq.runnable, 1, 0) {
+					// execute.
+					timeBeforeExec := time.Now()
+					res := p.executeInSlot(slotIndex, nextMergeReq)
+					totalExecuteTxDur += time.Since(timeBeforeExec)
+					if res != nil {
+						res.resultSendTime = time.Now()
+						p.txResultChan <- res
+					}
+				}
 			}
 
 			if !atomic.CompareAndSwapInt32(&stealTxReq.runnable, 1, 0) {
