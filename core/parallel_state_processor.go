@@ -124,6 +124,7 @@ type ParallelTxResult struct {
 	resultMergeTime          time.Time
 	resultWaitTurnTime       time.Time
 	resultGetProcessTime     time.Time
+	resultLoadDur            time.Duration
 }
 
 type ParallelTxRequest struct {
@@ -455,7 +456,7 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, isStage2 bo
 		} else {
 			// pop one result as target result.
 			result, ok := p.pendingConfirmResults.LoadAndDelete(targetTxIndex)
-			log.Debug("toConfirmTxIndex - loadAndDelete", "targetTxIndex", targetTxIndex, "ok", ok, "result", result)
+			// log.Debug("toConfirmTxIndex - loadAndDelete", "targetTxIndex", targetTxIndex, "ok", ok, "result", result)
 			if !ok {
 				return nil
 			}
@@ -855,6 +856,7 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, gp *Ga
 	resultTriggerChanDur := result.resultConfirmEndTime.Sub(result.resultMergeTime)
 	log.Info("ConfirmTxResult", "TX", result.txReq.txIndex,
 		"resultReceiveDur", common.PrettyDuration(resultReceiveDur),
+		"resultLoadDur", common.PrettyDuration(result.resultLoadDur),
 		"resultReceiveToPrefetch", common.PrettyDuration(resultReceiveToPrefetch),
 		"resultWaitToProcess", common.PrettyDuration(resultWaitedToProcess),
 		"resultGetProcessToCheck", common.PrettyDuration(resultGetProcessToCheck),
@@ -1008,7 +1010,9 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 		//log.Info("Try get TxResult from channel", "loop idx", index)
 		index++
+		beforeTime := time.Now()
 		unconfirmedResult := <-p.txResultChan
+		loadResultFromChanDur := time.Since(beforeTime)
 		if unconfirmedResult.txReq == nil {
 			//log.Info("Get nil unconfirmed result", "mergedIndex", p.mergedTxIndex.Load(), "lenTxs", len(p.allTxReqs))
 			if int(p.mergedTxIndex.Load())+1 == len(p.allTxReqs) {
@@ -1016,6 +1020,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 				break
 			}
 		}
+		unconfirmedResult.resultLoadDur = loadResultFromChanDur
 		unconfirmedResult.resultReceiveTime = time.Now()
 		// log.Info("Receive TxResult", "TX", unconfirmedResult.txReq.txIndex, "loop idx", index)
 		unconfirmedTxIndex := unconfirmedResult.txReq.txIndex
@@ -1035,7 +1040,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 	}
 
-	log.Info("All Txs processed", "loop idx", index, "block", block.NumberU64())
+	log.Info("All Txs processed", "block", block.NumberU64())
 	resultProcessTime := time.Now()
 	if p.error != nil {
 		p.doCleanUp()
