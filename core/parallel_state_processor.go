@@ -564,6 +564,7 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 	var totalExecuteTxDur time.Duration
 	var totalRunSlotLoopDur time.Duration
 
+	lastStartPos := 0
 	for {
 		loopBeginTime := time.Now()
 		startTime := time.Now()
@@ -590,9 +591,17 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 
 		interrupted := false
 		innerLoopBeforeTime := time.Now()
-		for _, txReq := range curSlot.pendingTxReqList {
+
+		for i := lastStartPos; i < len(curSlot.pendingTxReqList); i++ {
+			// for i, txReq := range curSlot.pendingTxReqList {
+			txReq := curSlot.pendingTxReqList[i]
 			if txReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
+			}
+			lastStartPos = i
+
+			if txReq.conflictIndex.Load() > p.mergedTxIndex.Load() {
+				break
 			}
 
 			if atomic.LoadInt32(&curSlot.activatedType) != slotType {
@@ -601,7 +610,6 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 			}
 
 			// first try next to be merged req.
-
 			nextIdx := p.mergedTxIndex.Load() + 1
 			if nextIdx < int32(len(p.allTxReqs)) {
 				nextMergeReq := p.allTxReqs[nextIdx]
@@ -639,10 +647,16 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 		// txReq in this Slot have all been executed, try steal one from other slot.
 		// as long as the TxReq is runnable, we steal it, mark it as stolen
 		stealLoopBeforeTime := time.Now()
-		for _, stealTxReq := range p.allTxReqs {
+		for j := int(p.mergedTxIndex.Load()) + 1; j < len(p.allTxReqs); j++ {
+			stealTxReq := p.allTxReqs[j]
 			if stealTxReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
 			}
+
+			if stealTxReq.conflictIndex.Load() > p.mergedTxIndex.Load() {
+				break
+			}
+
 			if atomic.LoadInt32(&curSlot.activatedType) != slotType {
 				interrupted = true
 				break
