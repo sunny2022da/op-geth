@@ -157,7 +157,7 @@ func (p *ParallelStateProcessor) init() {
 	p.resultAppendChan = make(chan struct{}, 20000)
 
 	p.slotState = make([]*SlotState, p.parallelNum)
-	quickMergeNum := p.parallelNum / 2
+	quickMergeNum := 2 // p.parallelNum / 2
 	for i := 0; i < p.parallelNum-quickMergeNum; i++ {
 		p.slotState[i] = &SlotState{
 			primaryWakeUpChan: make(chan struct{}, 1),
