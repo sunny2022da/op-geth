@@ -510,6 +510,8 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 		wakeupChan = curSlot.shadowWakeUpChan
 		stopChan = curSlot.shadowStopChan
 	}
+
+	lastStartPos := 0
 	for {
 		select {
 		case <-stopChan:
@@ -519,9 +521,17 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 		}
 
 		interrupted := false
-		for _, txReq := range curSlot.pendingTxReqList {
+
+		for i := lastStartPos; i < len(curSlot.pendingTxReqList); i++ {
+			// for i, txReq := range curSlot.pendingTxReqList {
+			txReq := curSlot.pendingTxReqList[i]
 			if txReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
+			}
+			lastStartPos = i
+
+			if txReq.conflictIndex.Load() > p.mergedTxIndex.Load() {
+				break
 			}
 
 			if atomic.LoadInt32(&curSlot.activatedType) != slotType {
@@ -558,10 +568,17 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 
 		// txReq in this Slot have all been executed, try steal one from other slot.
 		// as long as the TxReq is runnable, we steal it, mark it as stolen
-		for _, stealTxReq := range p.allTxReqs {
+
+		for j := int(p.mergedTxIndex.Load()) + 1; j < len(p.allTxReqs); j++ {
+			stealTxReq := p.allTxReqs[j]
 			if stealTxReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
 			}
+
+			if stealTxReq.conflictIndex.Load() > p.mergedTxIndex.Load() {
+				break
+			}
+
 			if atomic.LoadInt32(&curSlot.activatedType) != slotType {
 				interrupted = true
 				break
