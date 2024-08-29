@@ -630,19 +630,27 @@ func (p *ParallelStateProcessor) runQuickMergeSlotLoop(slotIndex int, slotType i
 		}
 
 		next := int(p.mergedTxIndex.Load()) + 1
+
+		executed := 5
 		for i := next; i < len(p.allTxReqs); i++ {
 			txReq := p.allTxReqs[next]
+			if executed == 0 {
+				break
+			}
 			if txReq.txIndex <= int(p.mergedTxIndex.Load()) {
 				continue
+			}
+			if txReq.conflictIndex.Load() > p.mergedTxIndex.Load() {
+				break
 			}
 			if !atomic.CompareAndSwapInt32(&txReq.runnable, 1, 0) {
 				continue
 			}
 			res := p.executeInSlot(slotIndex, txReq)
 			if res != nil {
+				executed--
 				p.txResultChan <- res
 			}
-			break
 		}
 	}
 }
