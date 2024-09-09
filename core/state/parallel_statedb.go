@@ -1398,6 +1398,10 @@ func (s *ParallelStateDB) getStateFromMainNoUpdate(addr common.Address, key comm
 // IsParallelReadsValid If stage2 is true, it is a likely conflict check,
 // to detect these potential conflict results in advance and schedule redo ASAP.
 func (slotDB *ParallelStateDB) IsParallelReadsValid(isStage2 bool) bool {
+	if slotDB.parallel.useDAG {
+		return true
+	}
+
 	parallelKvOnce.Do(func() {
 		StartKvCheckLoop()
 	})
@@ -1616,6 +1620,9 @@ func (slotDB *ParallelStateDB) IsParallelReadsValid(isStage2 bool) bool {
 
 // NeedsRedo returns true if there is any clear reason that we need to redo this transaction
 func (s *ParallelStateDB) NeedsRedo() bool {
+	if s.parallel.useDAG {
+		return false
+	}
 	return s.parallel.needsRedo
 }
 
