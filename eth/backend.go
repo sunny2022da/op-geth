@@ -226,6 +226,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			EnableParallelExec:        config.ParallelTxMode,
 			ParallelTxNum:             config.ParallelTxNum,
 			EnableOpcodeOptimizations: config.EnableOpcodeOptimizing,
+			TrustDAG:                  config.TrustDAG,
 		}
 		cacheConfig = &core.CacheConfig{
 			TrieCleanLimit:       config.TrieCleanCache,
