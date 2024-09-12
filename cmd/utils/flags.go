@@ -1120,6 +1120,12 @@ Please note that --` + MetricsHTTPFlag.Name + ` must be set to start the server.
 		Category: flags.VMCategory,
 	}
 
+	ParallelTrustTxDAGFlag = &cli.BoolFlag{
+		Name:     "parallel.trustdag",
+		Usage:    "Enable the experimental parallel transaction execution with trust of TxDAG data",
+		Category: flags.VMCategory,
+	}
+
 	VMOpcodeOptimizeFlag = &cli.BoolFlag{
 		Name:     "vm.opcode.optimize",
 		Usage:    "enable opcode optimization",
@@ -2052,6 +2058,10 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		if cfg.Miner.ParallelTxDAGSenderPriv, err = crypto.HexToECDSA(priHex); err != nil {
 			Fatalf("Failed to parse txdag private key of %s, err: %v", ParallelTxDAGSenderPrivFlag.Name, err)
 		}
+	}
+
+	if ctx.IsSet(ParallelTrustTxDAGFlag.Name) {
+		cfg.TrustDAG = ctx.Bool(ParallelTrustTxDAGFlag.Name)
 	}
 
 	if ctx.IsSet(VMOpcodeOptimizeFlag.Name) {
