@@ -1663,6 +1663,11 @@ func (s *ParallelStateDB) NeedsRedo() bool {
 	return s.parallel.needsRedo
 }
 
+// NeedsRedo returns true if there is any clear reason that we need to redo this transaction
+func (s *ParallelStateDB) UseDAG() bool {
+	return s.parallel.useDAG
+}
+
 // FinaliseForParallel finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
