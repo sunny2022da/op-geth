@@ -2486,15 +2486,6 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		}
 	}
 
-	// receipt.Logs use unified log index within a block
-	// align slotDB's log index to the block stateDB's logSize
-	for _, l := range slotReceipt.Logs {
-		l.Index += s.logSize
-		s.logs[s.thash] = append(s.logs[s.thash], l)
-	}
-
-	s.logSize += slotDb.logSize
-
 	// only merge dirty objects
 	addressesToPrefetch := make([][]byte, 0, len(slotDb.stateObjectsDirty))
 
@@ -2678,8 +2669,17 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		s.snapDestructs[k] = struct{}{}
 		s.snapParallelLock.Unlock()
 	}
+	/*
+		s.SetTxContext(slotDb.thash, slotDb.txIndex)
+		// receipt.Logs use unified log index within a block
+		// align slotDB's log index to the block stateDB's logSize
+		for _, l := range slotReceipt.Logs {
+			l.Index += s.logSize
+			s.logs[s.thash] = append(s.logs[s.thash], l)
+		}
 
-	s.SetTxContext(slotDb.thash, slotDb.txIndex)
+		s.logSize += slotDb.logSize
+	*/
 	return s
 }
 
