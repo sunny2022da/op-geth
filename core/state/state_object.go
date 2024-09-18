@@ -369,8 +369,22 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		pdb := s.db.parallel.baseStateDB
 		obj, exist := pdb.getStateObjectFromStateObjects(s.address)
 		if exist {
+			// if exist in mainDB, try get from mainDB's pending/origin
 			if obj.deleted || obj.selfDestructed {
 				return common.Hash{}
+			} else {
+				obj.storageRecordsLock.RLock()
+				var value common.Hash
+				var ok bool
+				if value, ok = obj.pendingStorage.GetValue(key); ok {
+					s.pendingStorage.StoreValue(key, value)
+				} else if value, ok = obj.originStorage.GetValue(key); ok {
+					s.originStorage.StoreValue(key, value)
+				}
+				obj.storageRecordsLock.RUnlock()
+				if ok {
+					return value
+				}
 			}
 		}
 	}
