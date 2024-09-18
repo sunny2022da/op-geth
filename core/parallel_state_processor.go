@@ -1114,7 +1114,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			"txDAG", txDAG != nil)
 	}
 	if metrics.EnabledExpensive {
-		parallelTxNumMeter.Mark(int64(p.mergedTxCount.Load()))
+		parallelTxNumMeter.Mark(int64(txNum))
 		parallelConflictTxNumMeter.Mark(int64(p.debugConflictRedoNum))
 	}
 
