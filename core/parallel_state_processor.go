@@ -446,7 +446,16 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, resultToMer
 			}
 
 			if _, ok := p.pendingConfirmResults.Load(targetTxIndex); !ok { // this is the last result to check, and it is not valid
-				// This means that the tx has been executed more than blockTxCount times, so it exits with the error.
+				// This means that the tx has been executed with error
+				if p.trustDAG && targetResult.slotDB.UseDAG() {
+					// with trustDAG, treat execution error as normal error.
+					if targetResult.err != nil {
+						if false { // TODO: delete the printf
+							fmt.Printf("!!!!!!!!!!! Parallel execution exited with error!!!!!, txIndex:%d, err: %v\n", targetResult.txReq.txIndex, targetResult.err)
+						}
+						return targetResult
+					}
+				}
 				if targetResult.txReq.txIndex == int(p.mergedTxIndex.Load())+1 &&
 					targetResult.slotDB.BaseTxIndex() == int(p.mergedTxIndex.Load()) {
 					if targetResult.err != nil {
@@ -462,7 +471,6 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, resultToMer
 						}
 						return targetResult
 					}
-					//}
 				}
 				atomic.CompareAndSwapInt32(&targetResult.txReq.runnable, 0, 1) // needs redo
 				p.debugConflictRedoNum++
