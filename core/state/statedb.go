@@ -750,6 +750,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 			defer obj.storageRecordsLock.Unlock()
 		}
 	*/
+	log.Debug("updateStateObject", "addr", obj.address, "data", obj.data)
 	if !s.noTrie {
 		// Track the amount of time wasted on updating the account from the trie
 		if metrics.EnabledExpensive {
@@ -789,6 +790,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 
 // deleteStateObject removes the given object from the state trie.
 func (s *StateDB) deleteStateObject(obj *stateObject) {
+	log.Debug("deleteStateObject", "addr", obj.address, "data", obj.data)
 	if s.noTrie {
 		return
 	}
@@ -1458,6 +1460,10 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 	}
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
+
+	log.Debug("Finalize", "txIndex", s.txIndex,
+		"s.stateObjectsPending", s.stateObjectsPending,
+		"s.stateObjectsDirty", s.stateObjectsDirty)
 }
 
 // IntermediateRoot computes the current root hash of the state trie.
@@ -1501,7 +1507,7 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				tasks <- func() {
 					defer wg.Done()
 					obj.updateRoot()
-
+					log.Debug("AccountsIntermediateRoot", "addr", addr, "obj.data", obj.data)
 					// Cache the data until commit. Note, this update mechanism is not symmetric
 					// to the deletion, because whereas it is enough to track account updates
 					// at commit time, deletions need tracking at transaction boundary level to
@@ -1517,7 +1523,7 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				tasks <- func() {
 					defer wg.Done()
 					obj.updateRoot()
-
+					log.Debug("AccountsIntermediateRoot", "addr", addr, "obj.data", obj.data)
 					// Cache the data until commit. Note, this update mechanism is not symmetric
 					// to the deletion, because whereas it is enough to track account updates
 					// at commit time, deletions need tracking at transaction boundary level to
@@ -1604,8 +1610,10 @@ func (s *StateDB) StateIntermediateRoot() common.Hash {
 	}
 
 	if s.noTrie {
+		log.Debug("StateIntermediateRoot", "return", s.expectedRoot)
 		return s.expectedRoot
 	} else {
+		log.Debug("StateIntermediateRoot", "return", s.trie.Hash())
 		return s.trie.Hash()
 	}
 }

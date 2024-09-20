@@ -240,6 +240,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			in.evm.Config.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
+
+		if in.evm.Context.BlockNumber.Uint64() == 699904 && in.evm.StateDB.TxIndex() == 3 {
+			log.Debug("operation execution", "op", op, "cost", cost)
+		}
+
 		// execute the operation
 		res, err = operation.execute(&pc, in, callContext)
 		if err != nil {
