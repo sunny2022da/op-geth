@@ -503,6 +503,7 @@ func (st *StateTransition) innerTransitionDb() (*ExecutionResult, error) {
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
 	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai)
 	if err != nil {
+		log.Debug("IntrinsicGas failed", "err", err)
 		return nil, err
 	}
 	if st.gasRemaining < gas {
