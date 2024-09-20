@@ -1831,6 +1831,11 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 	}
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
+	/*
+		log.Debug("FinalizeForParallel", "txIndex", s.txIndex,
+			"s.stateObjectsPending", s.stateObjectsPending,
+			"s.stateObjectsDirty", s.stateObjectsDirty)
+	*/
 }
 
 func (s *ParallelStateDB) reset() {

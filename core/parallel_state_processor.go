@@ -391,7 +391,7 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 		}
 	}
 	log.Debug("executeInSlot - store unconfirmedResults", "slotIndex", slotIndex, "txIndex", txReq.txIndex, "conflictIndex", conflictIndex,
-		"baseIndex", txResult.slotDB.BaseTxIndex())
+		"baseIndex", txResult.slotDB.BaseTxIndex(), "gasUsed", txResult.result.UsedGas)
 	p.unconfirmedResults.Store(txReq.txIndex, &txResult)
 	return &txResult
 }
@@ -1070,8 +1070,11 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 		// wait for execute result or the merged all signal.
 		unconfirmedResult := <-p.txResultChan
-		log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq", unconfirmedResult.txReq, "pmergedIndex", p.mergedTxIndex.Load())
 		if unconfirmedResult.txReq == nil {
+			log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq", unconfirmedResult.txReq,
+				"MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
+				"result.gasUsed", unconfirmedResult.result.UsedGas)
+
 			// all tx results are merged.
 			if int(p.mergedTxIndex.Load())+1 == allTxCount {
 				*usedGas = unconfirmedResult.result.UsedGas
@@ -1080,6 +1083,10 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 				log.Error("Process get nil Result", "result handling abort because of err", unconfirmedResult.err)
 			}
 			break
+		} else {
+			log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq.txIndex", unconfirmedResult.txReq.txIndex,
+				"MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
+				"result.gasUsed", unconfirmedResult.result.UsedGas)
 		}
 
 		// if it is not byz, it requires root calculation.
