@@ -21,6 +21,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -190,6 +191,7 @@ type StateDB struct {
 	snapParallelLock        sync.RWMutex // for parallel mode, for main StateDB, slot will read snapshot, while processor will write.
 	trieParallelLock        sync.Mutex   // for parallel mode of trie, mostly for get states/objects from trie, lock required to handle trie tracer.
 	stateObjectDestructLock sync.RWMutex // for parallel mode, used in mainDB for mergeSlot and conflict check.
+	stateObjectPendingLock  sync.RWMutex // for parallel merge mode.
 	snapDestructs           map[common.Address]struct{}
 
 	// originalRoot is the pre-state root, before any changes were made.
@@ -216,6 +218,8 @@ type StateDB struct {
 	stateObjectsDirty         map[common.Address]struct{}            // State objects modified in the current execution
 	stateObjectsDestruct      map[common.Address]*types.StateAccount // State objects destructed in the block along with its previous value
 	stateObjectsDestructDirty map[common.Address]*types.StateAccount
+
+	stateObjectMutexMap sync.Map // map[common.Address]Sync.Mutex
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -254,6 +258,9 @@ type StateDB struct {
 	journal        *journal
 	validRevisions []revision
 	nextRevisionId int
+	revisionMutex  sync.RWMutex
+
+	DelayGasFeeMutex sync.Mutex
 
 	// Measurements gathered during execution for debugging purposes
 	AccountReads         time.Duration
@@ -745,6 +752,7 @@ func (s *StateDB) GetTransientState(addr common.Address, key common.Hash) common
 
 // updateStateObject writes the given object to the trie.
 func (s *StateDB) updateStateObject(obj *stateObject) {
+	log.Debug("updateStateObject", "addr", obj.address, "data", obj.data)
 	if !s.noTrie {
 		// Track the amount of time wasted on updating the account from the trie
 		if metrics.EnabledExpensive {
@@ -784,6 +792,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 
 // deleteStateObject removes the given object from the state trie.
 func (s *StateDB) deleteStateObject(obj *stateObject) {
+	log.Debug("deleteStateObject", "addr", obj.address, "data", obj.data)
 	if s.noTrie {
 		return
 	}
@@ -1457,6 +1466,10 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 	}
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
+
+	log.Debug("Finalize", "txIndex", s.txIndex,
+		"s.stateObjectsPending", s.stateObjectsPending,
+		"s.stateObjectsDirty", s.stateObjectsDirty)
 }
 
 // IntermediateRoot computes the current root hash of the state trie.
@@ -1500,7 +1513,7 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				tasks <- func() {
 					defer wg.Done()
 					obj.updateRoot()
-
+					log.Debug("AccountsIntermediateRoot", "addr", addr, "obj.data", obj.data)
 					// Cache the data until commit. Note, this update mechanism is not symmetric
 					// to the deletion, because whereas it is enough to track account updates
 					// at commit time, deletions need tracking at transaction boundary level to
@@ -1516,7 +1529,7 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				tasks <- func() {
 					defer wg.Done()
 					obj.updateRoot()
-
+					log.Debug("AccountsIntermediateRoot", "addr", addr, "obj.data", obj.data)
 					// Cache the data until commit. Note, this update mechanism is not symmetric
 					// to the deletion, because whereas it is enough to track account updates
 					// at commit time, deletions need tracking at transaction boundary level to
@@ -1603,8 +1616,10 @@ func (s *StateDB) StateIntermediateRoot() common.Hash {
 	}
 
 	if s.noTrie {
+		log.Debug("StateIntermediateRoot", "return", s.expectedRoot)
 		return s.expectedRoot
 	} else {
+		log.Debug("StateIntermediateRoot", "return", s.trie.Hash())
 		return s.trie.Hash()
 	}
 }
@@ -2472,8 +2487,12 @@ func (s *StateDB) AddrPrefetch(slotDb *ParallelStateDB) {
 // MergeSlotDB is for Parallel execution mode, when the transaction has been
 // finalized(dirty -> pending) on execution slot, the execution results should be
 // merged back to the main StateDB.
-func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receipt, txIndex int, fees *DelayedGasFee) *StateDB {
-
+func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receipt,
+	txIndex int, fees *DelayedGasFee, enableParallelMerge bool) *StateDB {
+	if enableParallelMerge {
+		// require lock for s.validRevisions
+		s.revisionMutex.Lock()
+	}
 	for s.nextRevisionId < slotDb.nextRevisionId {
 		if len(slotDb.validRevisions) > 0 {
 			r := slotDb.validRevisions[s.nextRevisionId]
@@ -2484,11 +2503,21 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 			continue
 		}
 	}
+	if enableParallelMerge {
+		// require unlock for s.validRevisions
+		s.revisionMutex.Unlock()
+	}
 
 	// only merge dirty objects
 	addressesToPrefetch := make([][]byte, 0, len(slotDb.stateObjectsDirty))
 
 	for addr := range slotDb.stateObjectsDirty {
+		var mutex *sync.Mutex
+		if enableParallelMerge {
+			m, _ := s.stateObjectMutexMap.LoadOrStore(addr, new(sync.Mutex))
+			mutex = m.(*sync.Mutex)
+			mutex.Lock()
+		}
 		if _, exist := s.stateObjectsDirty[addr]; !exist {
 			s.stateObjectsDirty[addr] = struct{}{}
 		}
@@ -2497,6 +2526,13 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		dirtyObj, ok := slotDb.parallel.dirtiedStateObjectsInSlot[addr]
 		if !ok {
 			log.Error("parallel merge, but dirty object not exist!", "SlotIndex", slotDb.parallel.SlotIndex, "txIndex:", slotDb.txIndex, "addr", addr)
+			if enableParallelMerge {
+				if mutex == nil {
+					log.Crit("parallel merge incorrectly hold the nil stateObjectMutex")
+					os.Exit(-1)
+				}
+				mutex.Unlock()
+			}
 			continue
 		}
 		mainObj, exist := s.loadStateObj(addr)
@@ -2635,6 +2671,13 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 			s.storeStateObj(addr, newMainObj)
 		}
 		addressesToPrefetch = append(addressesToPrefetch, common.CopyBytes(addr[:])) // Copy needed for closure
+		if enableParallelMerge {
+			if mutex == nil {
+				log.Crit("parallel merge incorrectly hold the nil stateObjectMutex")
+				os.Exit(-1)
+			}
+			mutex.Unlock()
+		}
 	}
 
 	if s.prefetcher != nil && len(addressesToPrefetch) > 0 {
@@ -2643,11 +2686,13 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		s.trieParallelLock.Unlock()
 	}
 
+	s.stateObjectPendingLock.Lock()
 	for addr := range slotDb.stateObjectsPending {
 		if _, exist := s.stateObjectsPending[addr]; !exist {
 			s.stateObjectsPending[addr] = struct{}{}
 		}
 	}
+	s.stateObjectPendingLock.Unlock()
 
 	s.stateObjectDestructLock.Lock()
 	for addr := range slotDb.stateObjectsDestruct {
