@@ -890,7 +890,11 @@ func (s *ParallelStateDB) AddBalance(addr common.Address, amount *uint256.Int) {
 			newStateObject.setBalance(balance)
 			newStateObject.AddBalance(amount)
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
-			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			if amount.Sign() != 0 {
+				// skip the record so there is no record when merging object.
+				// otherwise there is issue for OOO merge when trust DAG.
+				s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			}
 			return
 		}
 		// already dirty, make sure the balance is fixed up since it could be previously dirtied by nonce or KV...
@@ -902,7 +906,9 @@ func (s *ParallelStateDB) AddBalance(addr common.Address, amount *uint256.Int) {
 		}
 
 		object.AddBalance(amount)
-		s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		if amount.Sign() != 0 {
+			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -917,7 +923,9 @@ func (s *ParallelStateDB) SubBalance(addr common.Address, amount *uint256.Int) {
 			balance := s.GetBalance(addr)
 			newStateObject.setBalance(balance)
 			newStateObject.SubBalance(amount)
-			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			if amount.Sign() != 0 {
+				s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			}
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
 			return
 		}
@@ -929,7 +937,9 @@ func (s *ParallelStateDB) SubBalance(addr common.Address, amount *uint256.Int) {
 			object.setBalance(balance)
 		}
 		object.SubBalance(amount)
-		s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		if amount.Sign() != 0 {
+			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -943,7 +953,9 @@ func (s *ParallelStateDB) SetBalance(addr common.Address, amount *uint256.Int) {
 			balance := s.GetBalance(addr)
 			newStateObject.setBalance(balance)
 			newStateObject.SetBalance(amount)
-			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			if balance.Cmp(amount) != 0 {
+				s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			}
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
 			return
 		}
@@ -951,7 +963,9 @@ func (s *ParallelStateDB) SetBalance(addr common.Address, amount *uint256.Int) {
 		balance := s.GetBalance(addr)
 		object.setBalance(balance)
 		object.SetBalance(amount)
-		s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		if balance.Cmp(amount) != 0 {
+			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -963,14 +977,18 @@ func (s *ParallelStateDB) SetNonce(addr common.Address, nonce uint64) {
 			noncePre := s.GetNonce(addr)
 			newStateObject.setNonce(noncePre) // nonce fixup
 			newStateObject.SetNonce(nonce)
-			s.parallel.nonceChangesInSlot[addr] = struct{}{}
+			if noncePre != nonce {
+				s.parallel.nonceChangesInSlot[addr] = struct{}{}
+			}
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
 			return
 		}
 		noncePre := s.GetNonce(addr)
 		object.setNonce(noncePre) // nonce fixup
 		object.SetNonce(nonce)
-		s.parallel.nonceChangesInSlot[addr] = struct{}{}
+		if noncePre != nonce {
+			s.parallel.nonceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -985,14 +1003,18 @@ func (s *ParallelStateDB) SetCode(addr common.Address, code []byte) {
 			newStateObject.setCode(codeHashPre, codePre)
 			newStateObject.SetCode(codeHash, code)
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
-			s.parallel.codeChangesInSlot[addr] = struct{}{}
+			if codeHash.Cmp(codeHashPre) != 0 {
+				s.parallel.codeChangesInSlot[addr] = struct{}{}
+			}
 			return
 		}
 		codePre := s.GetCode(addr) // code fixup
 		codeHashPre := crypto.Keccak256Hash(codePre)
 		object.setCode(codeHashPre, codePre)
 		object.SetCode(codeHash, code)
-		s.parallel.codeChangesInSlot[addr] = struct{}{}
+		if codeHash.Cmp(codeHashPre) != 0 {
+			s.parallel.codeChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
