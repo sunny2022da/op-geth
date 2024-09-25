@@ -529,7 +529,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	}
 
 	if bc.vmConfig.EnableParallelExec {
-		bc.CreateParallelProcessor(bc.vmConfig.ParallelTxNum, bc.vmConfig.TrustDAG)
+		bc.CreateParallelProcessor(bc.vmConfig.ParallelTxNum, bc.vmConfig.TrustDAG, bc.vmConfig.EnableParallelMerge)
 		bc.CreateSerialProcessor(chainConfig, bc, engine)
 	} else {
 		bc.processor = NewStateProcessor(chainConfig, bc, engine)
@@ -2700,9 +2700,9 @@ func (bc *BlockChain) GetTrieFlushInterval() time.Duration {
 	return time.Duration(bc.flushInterval.Load())
 }
 
-func (bc *BlockChain) CreateParallelProcessor(parallelNum int, trustDAG bool) *BlockChain {
+func (bc *BlockChain) CreateParallelProcessor(parallelNum int, trustDAG bool, enableParallelMerge bool) *BlockChain {
 	if bc.parallelProcessor == nil {
-		bc.parallelProcessor = newParallelStateProcessor(bc.Config(), bc, bc.engine, parallelNum, trustDAG)
+		bc.parallelProcessor = newParallelStateProcessor(bc.Config(), bc, bc.engine, parallelNum, trustDAG, enableParallelMerge)
 		bc.parallelExecution = true
 	}
 	return bc

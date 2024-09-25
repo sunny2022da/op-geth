@@ -41,7 +41,8 @@ type ResultHandleEnv struct {
 
 type ParallelStateProcessor struct {
 	StateProcessor
-	parallelNum           int          // leave a CPU to dispatcher
+	parallelNum           int // leave a CPU to dispatcher
+	parallelMergeEnabled  bool
 	slotState             []*SlotState // idle, or pending messages
 	allTxReqs             []*ParallelTxRequest
 	txResultChan          chan *ParallelTxResult // to notify dispatcher that a tx is done
@@ -64,21 +65,24 @@ type ParallelStateProcessor struct {
 	nextStage2TxIndex     int
 	delayGasFee           bool
 
-	commonTxs         []*types.Transaction
-	receipts          types.Receipts
-	error             error
-	resultMutex       sync.RWMutex
-	resultProcessChan chan *ResultHandleEnv
-	resultAppendChan  chan int
-	parallelDBManager *state.ParallelDBManager
-	trustDAG          bool
+	commonTxs           []*types.Transaction
+	receipts            types.Receipts
+	error               error
+	resultMutex         sync.RWMutex
+	resultProcessChan   []chan *ResultHandleEnv
+	resultAppendChan    chan int
+	parallelDBManager   *state.ParallelDBManager
+	txMergedMap         []*atomic.Bool
+	trustDAG            bool
+	stateDBContextMutex sync.RWMutex
 }
 
-func newParallelStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine, parallelNum int, trustDAG bool) *ParallelStateProcessor {
+func newParallelStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine, parallelNum int, trustDAG bool, enableParallelMerge bool) *ParallelStateProcessor {
 	processor := &ParallelStateProcessor{
-		StateProcessor: *NewStateProcessor(config, bc, engine),
-		parallelNum:    parallelNum,
-		trustDAG:       trustDAG,
+		StateProcessor:       *NewStateProcessor(config, bc, engine),
+		parallelNum:          parallelNum,
+		parallelMergeEnabled: enableParallelMerge,
+		trustDAG:             trustDAG,
 	}
 	processor.init()
 	return processor
@@ -141,7 +145,7 @@ func (p *ParallelStateProcessor) init() {
 	p.stopConfirmChan = make(chan struct{}, 1)
 	p.stopConfirmStage2Chan = make(chan struct{}, 1)
 
-	p.resultProcessChan = make(chan *ResultHandleEnv, 1)
+	p.resultProcessChan = make([]chan *ResultHandleEnv, p.parallelNum)
 	p.resultAppendChan = make(chan int, 10000)
 
 	p.slotState = make([]*SlotState, p.parallelNum)
@@ -190,10 +194,19 @@ func (p *ParallelStateProcessor) init() {
 		p.runConfirmStage2Loop()
 	}()
 
-	go func() {
-		p.handlePendingResultLoop()
-	}()
-
+	if p.parallelMergeEnabled {
+		for i := 0; i < p.parallelNum; i++ {
+			p.resultProcessChan[i] = make(chan *ResultHandleEnv, 1)
+			go func(idx int) {
+				p.handlePendingResultLoop(idx, true)
+			}(i)
+		}
+	} else {
+		p.resultProcessChan[0] = make(chan *ResultHandleEnv, 1)
+		go func() {
+			p.handlePendingResultLoop(0, false)
+		}()
+	}
 }
 
 // resetState clear slot state for each block.
@@ -927,6 +940,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// Iterate over and process the individual transactions
 	p.commonTxs = make([]*types.Transaction, txNum)
 	p.receipts = make([]*types.Receipt, txNum)
+	p.txMergedMap = make([]*atomic.Bool, txNum)
 
 	parallelNum := p.parallelNum
 
@@ -1056,11 +1070,25 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// ======================= Result handling ================= //
 	// kick off the result handler.
 	isByzantium := p.config.IsByzantium(header.Number)
-	p.resultProcessChan <- &ResultHandleEnv{
-		statedb:     statedb,
-		gp:          gp,
-		txCount:     allTxCount,
-		isByzantium: isByzantium,
+	var cumulativeGasUsedPerMergeWorker []uint64
+	if p.parallelMergeEnabled {
+		cumulativeGasUsedPerMergeWorker = make([]uint64, p.parallelNum)
+		for i := 0; i < p.parallelNum; i++ {
+			cumulativeGasUsedPerMergeWorker[i] = 0
+			p.resultProcessChan[i] <- &ResultHandleEnv{
+				statedb:     statedb,
+				gp:          gp,
+				txCount:     allTxCount,
+				isByzantium: isByzantium,
+			}
+		}
+	} else {
+		p.resultProcessChan[0] <- &ResultHandleEnv{
+			statedb:     statedb,
+			gp:          gp,
+			txCount:     allTxCount,
+			isByzantium: isByzantium,
+		}
 	}
 	for {
 		log.Debug("Process ResultSendingLoop", "mergedIndex", p.mergedTxIndex.Load())
@@ -1072,20 +1100,30 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		unconfirmedResult := <-p.txResultChan
 		if unconfirmedResult.txReq == nil {
 			log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq", unconfirmedResult.txReq,
-				"MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
+				"mergeWorkerIdx", unconfirmedResult.slotIndex, "MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
 				"result.gasUsed", unconfirmedResult.result.UsedGas)
+
+			cumulativeGasUsedPerMergeWorker[unconfirmedResult.slotIndex] = unconfirmedResult.result.UsedGas
 
 			// all tx results are merged.
 			if int(p.mergedTxIndex.Load())+1 == allTxCount {
-				*usedGas = unconfirmedResult.result.UsedGas
+				if p.parallelMergeEnabled {
+					for _, gasUsed := range cumulativeGasUsedPerMergeWorker {
+						*usedGas += gasUsed
+					}
+				} else {
+					*usedGas = unconfirmedResult.result.UsedGas
+				}
 				log.Debug("Process get nil Result", "All transactions merged", p.mergedTxIndex.Load())
 			} else {
 				log.Error("Process get nil Result", "result handling abort because of err", unconfirmedResult.err)
+
 			}
 			break
 		} else {
 			log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq.txIndex", unconfirmedResult.txReq.txIndex,
-				"MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
+				"mergeWorkerIdx", unconfirmedResult.slotIndex, "MergedIndex", p.mergedTxIndex.Load(),
+				"Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
 				"result.gasUsed", unconfirmedResult.result.UsedGas)
 		}
 
@@ -1100,7 +1138,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 				continue
 			}
 		} else {
-			if p.commonTxs[unconfirmedTxIndex] != nil {
+			if p.txMergedMap[unconfirmedTxIndex].Load() != true && p.commonTxs[unconfirmedTxIndex] != nil {
 				// unconfirmedTx already merged.
 				continue
 			}
@@ -1162,7 +1200,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	return receipts, allLogs, *usedGas, nil
 }
 
-func (p *ParallelStateProcessor) handlePendingResultLoop() {
+func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParallelMerge bool) {
 	var info *ResultHandleEnv
 	var stateDB *state.StateDB
 	var gp *GasPool
@@ -1173,7 +1211,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 	var CumulativeGasUsed uint64
 	for {
 		select {
-		case info = <-p.resultProcessChan:
+		case info = <-p.resultProcessChan[index]:
 			stateDB = info.statedb
 			gp = info.gp
 			txCount = info.txCount
@@ -1187,8 +1225,8 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 		// if all merged, notify the main routine. continue to wait for next block.
 		if p.mergedTxIndex.Load()+1 == int32(txCount) {
 			log.Debug("handlePendingResult merged all")
-
-			p.txResultChan <- &ParallelTxResult{txReq: nil, result: &ExecutionResult{UsedGas: CumulativeGasUsed}}
+			p.txResultChan <- &ParallelTxResult{txReq: nil, slotIndex: index,
+				result: &ExecutionResult{UsedGas: CumulativeGasUsed}}
 			// clear the pending chan.
 			for len(p.resultAppendChan) > 0 {
 				<-p.resultAppendChan
@@ -1200,24 +1238,42 @@ func (p *ParallelStateProcessor) handlePendingResultLoop() {
 		for {
 			log.Debug("busy waiting for pending result", "mergedIndex", p.mergedTxIndex.Load(), "allTxCount", txCount)
 			nextTxIndex := int(p.mergedTxIndex.Load()) + 1
-			if OutOfOrderMerge {
+			if OutOfOrderMerge || p.parallelMergeEnabled {
 				// skip those already merged.
 				for {
 					log.Debug("OOOMerge check loop", "nextTxIndex", nextTxIndex, "txCount", txCount)
 					if nextTxIndex == txCount {
 						// reach the last, update the mergedTxIndex if needed
 						if p.mergedTxIndex.Load() != int32(nextTxIndex-1) {
+							if p.parallelMergeEnabled {
+								if p.txMergedMap[nextTxIndex-1].Load() == true {
+									// already merged
+									break
+								}
+
+								if !p.txMergedMap[nextTxIndex-1].CompareAndSwap(false, true) {
+									// merged by other worker
+									break
+								}
+								// marked as merged from unmerged, update the data.
+								// here we don't need to lock as we already hold the merged state in MergedMap.
+							}
 							if p.receipts[nextTxIndex-1] == nil {
 								// no receipts, there is an error at applyMessage.
+								log.Error("handlePendingResultLoop", "unexpected receipt", nil,
+									"mergeWorker", "index", "txIndex", nextTxIndex-1, "mergedIndex", p.mergedTxIndex.Load())
 								break
 							}
 							if p.receipts[nextTxIndex-1].CumulativeGasUsed == 0 {
 								// update receipt
 								receipt := p.receipts[nextTxIndex-1]
+
+								p.stateDBContextMutex.Lock()
 								stateDB.SetTxContext(receipt.TxHash, nextTxIndex-1)
 								for _, l := range receipt.Logs {
 									stateDB.AddLog(l)
 								}
+								p.stateDBContextMutex.Unlock()
 								CumulativeGasUsed += receipt.GasUsed
 								log.Debug("update CumulativeGasUse txCount", "TxIndex", nextTxIndex-1, "CumulativeGasUsed", CumulativeGasUsed)
 

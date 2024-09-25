@@ -1126,6 +1126,12 @@ Please note that --` + MetricsHTTPFlag.Name + ` must be set to start the server.
 		Category: flags.VMCategory,
 	}
 
+	ParallelMergeFlag = &cli.BoolFlag{
+		Name:     "parallel.merge",
+		Usage:    "Enable the experimental parallel merge of tx execution",
+		Category: flags.VMCategory,
+	}
+
 	VMOpcodeOptimizeFlag = &cli.BoolFlag{
 		Name:     "vm.opcode.optimize",
 		Usage:    "enable opcode optimization",
@@ -2062,6 +2068,10 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 
 	if ctx.IsSet(ParallelTrustTxDAGFlag.Name) {
 		cfg.TrustDAG = ctx.Bool(ParallelTrustTxDAGFlag.Name)
+	}
+
+	if ctx.IsSet(ParallelMergeFlag.Name) {
+		cfg.EnableParallelMerge = ctx.Bool(ParallelMergeFlag.Name)
 	}
 
 	if ctx.IsSet(VMOpcodeOptimizeFlag.Name) {
