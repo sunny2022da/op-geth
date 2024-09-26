@@ -896,6 +896,9 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 			// Thus, we can safely ignore it here
 			continue
 		}
+		if obj.address.Hex() == "0x0000000000000000000000000000000000000001" {
+			log.Debug("Finalise", "addr", addr, "obj.selfDestructed", obj.selfDestructed, "obj.empty", obj.empty())
+		}
 		if obj.selfDestructed || (deleteEmptyObjects && obj.empty()) {
 			obj.deleted = true
 
