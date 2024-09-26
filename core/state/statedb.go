@@ -744,12 +744,9 @@ func (s *StateDB) GetTransientState(addr common.Address, key common.Hash) common
 
 // updateStateObject writes the given object to the trie.
 func (s *StateDB) updateStateObject(obj *stateObject) {
-	/*
-		if !(s.isParallel && s.parallel.isSlotDB) {
-			obj.storageRecordsLock.Lock()
-			defer obj.storageRecordsLock.Unlock()
-		}
-	*/
+	log.Debug("updateStateObject", "addr", obj.address, "data", obj.data,
+		"object.dirtyNonce", obj.dirtyNonce,
+		"object.dirtyBalance", obj.dirtyBalance)
 	if !s.noTrie {
 		// Track the amount of time wasted on updating the account from the trie
 		if metrics.EnabledExpensive {
@@ -789,6 +786,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 
 // deleteStateObject removes the given object from the state trie.
 func (s *StateDB) deleteStateObject(obj *stateObject) {
+	log.Debug("deleteStateObject", "addr", obj.address, "data", obj.data)
 	if s.noTrie {
 		return
 	}
@@ -1073,6 +1071,9 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 	// if addr not exist, preBalance will be common.U2560, it is same as new(big.Int) which
 	// is the value newObject(),
 	newObj, prev := s.createObject(addr)
+	if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+		log.Debug("CreateAccount - setBalance", "addr", addr.Hex(), "prev", prev)
+	}
 	if prev != nil {
 		newObj.setBalance(prev.Balance())
 	}
@@ -1466,6 +1467,7 @@ func (s *StateDB) Finalise(deleteEmptyObjects bool) {
 // TODO: For parallel SlotDB, IntermediateRootForSlot is used, need to clean up this method.
 func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// Finalise all the dirty storage states and write them into the tries
+	log.Debug("IntermediateRoot", "deleteEmptyObjects", deleteEmptyObjects)
 	s.Finalise(deleteEmptyObjects)
 	s.AccountsIntermediateRoot()
 	return s.StateIntermediateRoot()
@@ -1604,8 +1606,10 @@ func (s *StateDB) StateIntermediateRoot() common.Hash {
 	}
 
 	if s.noTrie {
+		log.Debug("StateIntermediateRoot", "root noTrie", s.expectedRoot)
 		return s.expectedRoot
 	} else {
+		log.Debug("StateIntermediateRoot", "root", s.trie.Hash())
 		return s.trie.Hash()
 	}
 }
@@ -2556,6 +2560,11 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 					} else {
 						// Merge the dirtyObject with mainObject
 						if _, balanced := slotDb.parallel.balanceChangesInSlot[addr]; balanced {
+							if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+								log.Debug("MergeSlotDB", "update MainOBJ balance, origin dirtyBalance", newMainObj.dirtyBalance,
+									"origin balance", newMainObj.data.Balance, "dirty dirtyBalance", dirtyObj.dirtyBalance,
+									"dirty.dataBalance", dirtyObj.data.Balance)
+							}
 							newMainObj.dirtyBalance = dirtyObj.dirtyBalance
 							newMainObj.data.Balance = dirtyObj.data.Balance
 						}
@@ -2602,6 +2611,11 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 				// to "mainObj.finalise()", just in case that newMainObj.delete == true and somewhere potentially
 				// access the Nonce, balance or codehash later.
 				if _, balanced := slotDb.parallel.balanceChangesInSlot[addr]; balanced {
+					if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+						log.Debug("MergeSlotDB", "update MainOBJ balance, origin dirtyBalance", newMainObj.dirtyBalance,
+							"origin balance", newMainObj.data.Balance, "dirty dirtyBalance", dirtyObj.dirtyBalance,
+							"dirty.dataBalance", dirtyObj.data.Balance)
+					}
 					newMainObj.dirtyBalance = dirtyObj.dirtyBalance
 					newMainObj.data.Balance = dirtyObj.data.Balance
 				}
