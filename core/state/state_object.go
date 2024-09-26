@@ -19,6 +19,7 @@ package state
 import (
 	"bytes"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"io"
 	"sync"
 	"time"
@@ -408,6 +409,7 @@ func (s *stateObject) updateRoot() {
 		defer func(start time.Time) { s.db.StorageHashes += time.Since(start) }(time.Now())
 	}
 	s.data.Root = tr.Hash()
+	log.Debug("updateRoot", "addr", s.address, "data", s.data)
 }
 
 // commit obtains a set of dirty storage trie nodes and updates the account data.
