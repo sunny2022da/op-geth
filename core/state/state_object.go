@@ -471,6 +471,9 @@ func (s *stateObject) SetBalance(amount *uint256.Int) {
 }
 
 func (s *stateObject) setBalance(amount *uint256.Int) {
+	if s.address.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+		log.Debug("setBalance", "addr", s.address.Hex(), "amount", amount.String(), "old balance", s.data.Balance)
+	}
 	s.data.Balance = amount
 }
 

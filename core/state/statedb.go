@@ -743,6 +743,9 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 func (s *StateDB) CreateAccount(addr common.Address) {
 	newObj, prev := s.createObject(addr)
 	if prev != nil {
+		if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+			log.Debug("CreateAccount-setBalance", "addr", addr.Hex(), "balance", prev.data.Balance)
+		}
 		newObj.setBalance(prev.data.Balance)
 	}
 }
