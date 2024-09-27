@@ -1050,7 +1050,7 @@ func (s *StateDB) createObject(addr common.Address) (newobj *stateObject, prev *
 
 	newobj.created = true
 	s.setStateObject(newobj)
-	if prev != nil && prev.deleted {
+	if prev != nil && !prev.deleted {
 		return newobj, prev
 	}
 	return newobj, nil
