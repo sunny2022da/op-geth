@@ -1071,6 +1071,9 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 	// if addr not exist, preBalance will be common.U2560, it is same as new(big.Int) which
 	// is the value newObject(),
 	newObj, prev := s.createObject(addr)
+	if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+		log.Debug("CreateAccount - setBalance", "addr", addr.Hex(), "prev", prev)
+	}
 	if prev != nil {
 		newObj.setBalance(prev.Balance())
 	}
@@ -2557,6 +2560,11 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 					} else {
 						// Merge the dirtyObject with mainObject
 						if _, balanced := slotDb.parallel.balanceChangesInSlot[addr]; balanced {
+							if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+								log.Debug("MergeSlotDB", "update MainOBJ balance, origin dirtyBalance", newMainObj.dirtyBalance,
+									"origin balance", newMainObj.data.Balance, "dirty dirtyBalance", dirtyObj.dirtyBalance,
+									"dirty.dataBalance", dirtyObj.data.Balance)
+							}
 							newMainObj.dirtyBalance = dirtyObj.dirtyBalance
 							newMainObj.data.Balance = dirtyObj.data.Balance
 						}
@@ -2603,6 +2611,11 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 				// to "mainObj.finalise()", just in case that newMainObj.delete == true and somewhere potentially
 				// access the Nonce, balance or codehash later.
 				if _, balanced := slotDb.parallel.balanceChangesInSlot[addr]; balanced {
+					if addr.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+						log.Debug("MergeSlotDB", "update MainOBJ balance, origin dirtyBalance", newMainObj.dirtyBalance,
+							"origin balance", newMainObj.data.Balance, "dirty dirtyBalance", dirtyObj.dirtyBalance,
+							"dirty.dataBalance", dirtyObj.data.Balance)
+					}
 					newMainObj.dirtyBalance = dirtyObj.dirtyBalance
 					newMainObj.data.Balance = dirtyObj.data.Balance
 				}

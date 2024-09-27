@@ -483,6 +483,9 @@ func (s *stateObject) finalise(prefetch bool) {
 		s.dirtyNonce = nil
 	}
 	if s.dirtyBalance != nil {
+		if s.address.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+			log.Debug("finalise - set dirtyBalance", "addr", s.address.Hex(), "balance", s.data.Balance, "dirtyBalance", s.dirtyBalance)
+		}
 		s.data.Balance = s.dirtyBalance
 		s.dirtyBalance = nil
 	}
@@ -738,6 +741,9 @@ func (s *stateObject) SetBalance(amount *uint256.Int) {
 }
 
 func (s *stateObject) setBalance(amount *uint256.Int) {
+	if s.address.Hex() == "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4" {
+		log.Debug("setBalance", "addr", "amount", amount, "s.dirtyBlance", s.dirtyBalance, "s.data.balance", s.data.Balance)
+	}
 	s.dirtyBalance = amount
 }
 
