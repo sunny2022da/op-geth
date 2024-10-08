@@ -2461,14 +2461,18 @@ func (s *StateDB) AddrPrefetch(slotDb *ParallelStateDB) {
 		})
 		obj.storageRecordsLock.RUnlock()
 		if s.prefetcher != nil && len(slotsToPrefetch) > 0 {
+			s.trieParallelLock.Lock()
 			s.prefetcher.prefetch(obj.addrHash, obj.data.Root, obj.address, slotsToPrefetch)
+			s.trieParallelLock.Unlock()
 		}
 	}
 
 	if s.prefetcher != nil && len(addressesToPrefetch) > 0 {
 		// log.Info("AddrPrefetch", "slotDb.TxIndex", slotDb.TxIndex(),
 		//	"len(addressesToPrefetch)", len(slotDb.parallel.addressesToPrefetch))
+		s.trieParallelLock.Lock()
 		s.prefetcher.prefetch(common.Hash{}, s.originalRoot, emptyAddr, addressesToPrefetch)
+		s.trieParallelLock.Unlock()
 	}
 }
 
@@ -2645,7 +2649,9 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 	}
 
 	if s.prefetcher != nil && len(addressesToPrefetch) > 0 {
+		s.trieParallelLock.Lock()
 		s.prefetcher.prefetch(common.Hash{}, s.originalRoot, emptyAddr, addressesToPrefetch) // prefetch for trie node of account
+		s.trieParallelLock.Unlock()
 	}
 
 	for addr := range slotDb.stateObjectsPending {
