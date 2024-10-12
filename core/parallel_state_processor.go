@@ -778,6 +778,7 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, merger
 	}
 	// ok, the tx result is valid and can be merged
 	if result.err != nil {
+		p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
 		return result
 	}
 

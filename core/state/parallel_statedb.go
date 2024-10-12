@@ -1474,10 +1474,8 @@ func (slotDB *ParallelStateDB) IsParallelReadsValid(isStage2 bool) bool {
 	})
 
 	mainDB := slotDB.parallel.baseStateDB
+	log.Debug("IsParallelReadsValid", "isStage2", isStage2, "txIndex", slotDB.txIndex)
 	// conservatively use kvRead size as the initial size.
-	slotDB.parallel.conflictCheckStateObjectCache = new(sync.Map)
-	slotDB.parallel.conflictCheckKVReadCache = new(sync.Map)
-
 	if isStage2 && slotDB.txIndex < mainDB.TxIndex() {
 		// already merged, no need to check
 		return true
@@ -1843,6 +1841,8 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 }
 
 func (s *ParallelStateDB) reset() {
+	log.Debug("slotDB reset", "txIndex", s.txIndex,
+		"s.parallel", s.parallel, "conflictCheckStateObjectCache", s.parallel.conflictCheckStateObjectCache)
 	s.StateDB.db = nil
 	s.StateDB.prefetcher = nil
 	s.StateDB.trie = nil
@@ -1908,7 +1908,7 @@ func (s *ParallelStateDB) reset() {
 	s.StateDB.AccountDeleted = 0
 	s.StateDB.StorageDeleted = 0
 	s.StateDB.isParallel = true
-	s.StateDB.parallel = ParallelState{}
+	// s.StateDB.parallel = ParallelState{}
 	s.StateDB.onCommit = nil
 
 	s.parallel.isSlotDB = true
@@ -1935,6 +1935,14 @@ func (s *ParallelStateDB) reset() {
 	s.parallel.createdObjectRecord = addressToStructPool.Get().(map[common.Address]struct{})
 	s.parallel.needsRedo = false
 	s.parallel.useDAG = false
-	s.parallel.conflictCheckStateObjectCache = nil
-	s.parallel.conflictCheckKVReadCache = nil
+	EraseSyncMap(s.parallel.conflictCheckStateObjectCache)
+	EraseSyncMap(s.parallel.conflictCheckKVReadCache)
+
+}
+
+func EraseSyncMap(m *sync.Map) {
+	m.Range(func(key interface{}, value interface{}) bool {
+		m.Delete(key)
+		return true
+	})
 }

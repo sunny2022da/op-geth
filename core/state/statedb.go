@@ -1288,23 +1288,25 @@ func NewEmptySlotDB() *ParallelStateDB {
 		//
 		// We are not do simple copy (lightweight pointer copy) as the stateObject can be accessed by different thread.
 
-		stateObjects:                 nil, /* The parallel execution will not use this field, except the base DB */
-		locatStateObjects:            addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
-		codeReadsInSlot:              addressToBytesPool.Get().(map[common.Address][]byte),
-		codeHashReadsInSlot:          addressToHashPool.Get().(map[common.Address]common.Hash),
-		codeChangesInSlot:            addressToStructPool.Get().(map[common.Address]struct{}),
-		kvChangesInSlot:              addressToStateKeysPool.Get().(map[common.Address]StateKeys),
-		kvReadsInSlot:                addressToStoragePool.Get().(map[common.Address]Storage),
-		balanceChangesInSlot:         addressToStructPool.Get().(map[common.Address]struct{}),
-		balanceReadsInSlot:           balancePool.Get().(map[common.Address]*uint256.Int),
-		addrStateReadsInSlot:         addressToBoolPool.Get().(map[common.Address]bool),
-		addrStateChangesInSlot:       addressToBoolPool.Get().(map[common.Address]bool),
-		nonceChangesInSlot:           addressToStructPool.Get().(map[common.Address]struct{}),
-		nonceReadsInSlot:             addressToUintPool.Get().(map[common.Address]uint64),
-		addrSnapDestructsReadsInSlot: addressToBoolPool.Get().(map[common.Address]bool),
-		isSlotDB:                     true,
-		dirtiedStateObjectsInSlot:    addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
-		createdObjectRecord:          addressToStructPool.Get().(map[common.Address]struct{}),
+		stateObjects:                  nil, /* The parallel execution will not use this field, except the base DB */
+		locatStateObjects:             addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
+		codeReadsInSlot:               addressToBytesPool.Get().(map[common.Address][]byte),
+		codeHashReadsInSlot:           addressToHashPool.Get().(map[common.Address]common.Hash),
+		codeChangesInSlot:             addressToStructPool.Get().(map[common.Address]struct{}),
+		kvChangesInSlot:               addressToStateKeysPool.Get().(map[common.Address]StateKeys),
+		kvReadsInSlot:                 addressToStoragePool.Get().(map[common.Address]Storage),
+		balanceChangesInSlot:          addressToStructPool.Get().(map[common.Address]struct{}),
+		balanceReadsInSlot:            balancePool.Get().(map[common.Address]*uint256.Int),
+		addrStateReadsInSlot:          addressToBoolPool.Get().(map[common.Address]bool),
+		addrStateChangesInSlot:        addressToBoolPool.Get().(map[common.Address]bool),
+		nonceChangesInSlot:            addressToStructPool.Get().(map[common.Address]struct{}),
+		nonceReadsInSlot:              addressToUintPool.Get().(map[common.Address]uint64),
+		addrSnapDestructsReadsInSlot:  addressToBoolPool.Get().(map[common.Address]bool),
+		isSlotDB:                      true,
+		dirtiedStateObjectsInSlot:     addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
+		createdObjectRecord:           addressToStructPool.Get().(map[common.Address]struct{}),
+		conflictCheckStateObjectCache: new(sync.Map),
+		conflictCheckKVReadCache:      new(sync.Map),
 	}
 	state := &ParallelStateDB{
 		StateDB: StateDB{
@@ -2730,14 +2732,15 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 }
 
 // NewParallelDBManager creates a new ParallelDBManager with the specified number of instance
-func NewParallelDBManager(initialCount int, newFunc func() *ParallelStateDB) *ParallelDBManager {
+func NewParallelDBManager(capacity int, newFunc func() *ParallelStateDB) *ParallelDBManager {
 	manager := &ParallelDBManager{
-		pool:    list.New(),
-		mutex:   sync.Mutex{},
-		newFunc: newFunc,
+		capacity: capacity,
+		pool:     list.New(),
+		mutex:    sync.Mutex{},
+		newFunc:  newFunc,
 	}
 
-	for i := 0; i < initialCount; i++ {
+	for i := 0; i < capacity; i++ {
 		manager.pool.PushBack(newFunc())
 	}
 
@@ -2746,9 +2749,10 @@ func NewParallelDBManager(initialCount int, newFunc func() *ParallelStateDB) *Pa
 
 // ParallelDBManager manages a pool of ParallelDB instances
 type ParallelDBManager struct {
-	pool    *list.List
-	mutex   sync.Mutex
-	newFunc func() *ParallelStateDB // Function to create a new ParallelDB instance
+	capacity int
+	pool     *list.List
+	mutex    sync.Mutex
+	newFunc  func() *ParallelStateDB // Function to create a new ParallelDB instance
 }
 
 // allocate acquires a ParallelStateDB instance from the pool
@@ -2770,5 +2774,7 @@ func (m *ParallelDBManager) allocate() *ParallelStateDB {
 func (m *ParallelDBManager) reclaim(s *ParallelStateDB) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	m.pool.PushBack(s)
+	if m.pool.Len() < m.capacity {
+		m.pool.PushBack(s)
+	}
 }
