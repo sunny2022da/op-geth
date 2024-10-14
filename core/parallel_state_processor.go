@@ -388,8 +388,6 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 
 	if err == nil {
 		p.unconfirmedDBs.Store(txReq.txIndex, slotDB)
-		log.Debug("executeInSlot - store unconfirmedResults", "slotIndex", slotIndex, "txIndex", txReq.txIndex, "conflictIndex", conflictIndex,
-			"baseIndex", txResult.slotDB.BaseTxIndex(), "gasUsed", txResult.result.UsedGas)
 	} else {
 		// the transaction failed at check(nonce or balance), actually it has not been executed yet.
 		// the error here can be either expected or unexpected.
@@ -404,8 +402,6 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 		conflictIndex = txReq.conflictIndex.Load()
 		if conflictIndex < mIndex {
 			if txReq.conflictIndex.CompareAndSwap(conflictIndex, mIndex) {
-				log.Debug(fmt.Sprintf("Update conflictIndex in execution because of error: %s, mIndex: %d, new conflictIndex: %d, txIndex: %d",
-					err.Error(), mIndex, txReq.conflictIndex.Load(), txReq.txIndex))
 				atomic.CompareAndSwapInt32(&txReq.runnable, 0, 1)
 				// the error could be caused by unconfirmed balance reference,
 				// the balance could insufficient to pay its gas limit, which cause it preCheck.buyGas() failed
@@ -595,7 +591,6 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 						// execute.
 						res := p.executeInSlot(slotIndex, nextMergeReq)
 						if res != nil {
-							log.Debug("runSlotLoop send result", "result.txReq", res.txReq)
 							p.txResultChan <- res
 						}
 					}
@@ -611,7 +606,6 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 				if res == nil {
 					continue
 				}
-				log.Debug("runSlotLoop send result", "result.txReq", res.txReq)
 				p.txResultChan <- res
 			}
 		}
@@ -647,7 +641,6 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 						// execute.
 						res := p.executeInSlot(slotIndex, nextMergeReq)
 						if res != nil {
-							log.Debug("runSlotLoop send result", "result.txReq", res.txReq)
 							p.txResultChan <- res
 						}
 					}
@@ -660,7 +653,6 @@ func (p *ParallelStateProcessor) runSlotLoop(slotIndex int, slotType int32) {
 				}
 				res := p.executeInSlot(slotIndex, stealTxReq)
 				if res != nil {
-					log.Debug("runSlotLoop send result", "result.txReq", res.txReq)
 					p.txResultChan <- res
 				}
 			}
@@ -709,7 +701,6 @@ func (p *ParallelStateProcessor) runQuickMergeSlotLoop(slotIndex int, slotType i
 				res := p.executeInSlot(slotIndex, txReq)
 				if res != nil {
 					executed--
-					log.Debug("runQuickMergeSlotLoop send result", "result.txReq", res.txReq)
 					p.txResultChan <- res
 				}
 			}
@@ -912,8 +903,6 @@ func (p *ParallelStateProcessor) doCleanUp() {
 		<-p.stopSlotChan
 		<-p.stopSlotChan
 	}
-
-	//log.Debug("doCleanUp - stopSlotChan")
 	// 2.make sure the confirmation routine is stopped
 	p.stopConfirmStage2Chan <- struct{}{}
 	<-p.stopSlotChan
@@ -922,8 +911,6 @@ func (p *ParallelStateProcessor) doCleanUp() {
 	for {
 		if len(p.txResultChan) > 0 {
 			<-p.txResultChan
-			// res := <-p.txResultChan
-			// log.Debug("doCleanUp - drain txResultChain", "result.txReq", res.txReq)
 			continue
 		}
 		break
@@ -1145,7 +1132,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		if unconfirmedResult.txReq == nil {
 			// get exit signal from merger.
 			log.Debug("Process get unconfirmedResult for complete", "unconfirmedResult.txReq", unconfirmedResult.txReq,
-				"mergeWorkerIdx", unconfirmedResult.slotIndex, "MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
+				"mergeWorkerIdx", unconfirmedResult.slotIndex, "MergedIndex", p.mergedTxIndex.Load(), "Result.err", unconfirmedResult.err,
+				"vmerr", unconfirmedResult.result.Err,
 				"result.gasUsed", unconfirmedResult.result.UsedGas)
 
 			cumulativeGasUsedPerMergeWorker[unconfirmedResult.slotIndex] = unconfirmedResult.result.UsedGas
@@ -1162,24 +1150,13 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 				log.Debug("Process get nil Result", "All transactions merged", p.mergedTxIndex.Load())
 			} else {
 				// exit from an error
-				log.Error("Process get nil Result", "result handling abort because of err", unconfirmedResult.err)
+				log.Debug("Process get nil Result", "result handling abort because of err", unconfirmedResult.err)
 			}
 			// jump out of the loop
 			break
-		} else {
-			// normal unconfirmedResult, going to be processed by worker.
-			if unconfirmedResult.result != nil {
-				log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq.txIndex", unconfirmedResult.txReq.txIndex,
-					"mergeWorkerIdx", unconfirmedResult.slotIndex, "MergedIndex", p.mergedTxIndex.Load(),
-					"Result.err", unconfirmedResult.err, "vmerr", unconfirmedResult.result.Err,
-					"result.gasUsed", unconfirmedResult.result.UsedGas)
-			} else {
-				log.Debug("Process get unconfirmedResult", "unconfirmedResult.txReq.txIndex", unconfirmedResult.txReq.txIndex,
-					"mergeWorkerIdx", unconfirmedResult.slotIndex, "MergedIndex", p.mergedTxIndex.Load(),
-					"Result.err", unconfirmedResult.err)
-			}
 		}
 
+		// normal unconfirmedResult, going to be processed by worker.
 		// if it is not byz, it requires root calculation.
 		// if it doesn't trustDAG, it can not do OOO merge and have to do conflictCheck
 		OutOfOrderMerge := isByzantium && p.trustDAG
@@ -1202,7 +1179,6 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		if !ok || prevResult.(*ParallelTxResult).slotDB.BaseTxIndex() < unconfirmedResult.slotDB.BaseTxIndex() {
 			p.pendingConfirmResults.Store(unconfirmedTxIndex, unconfirmedResult)
 			// send to handler
-			log.Debug("Send unconfirmTx to handler", "unconfirmedTxIndex", unconfirmedTxIndex)
 			p.resultAppendChan <- unconfirmedTxIndex
 		}
 	}
@@ -1210,9 +1186,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// ======================== All result merged ====================== //
 
 	// clean up when the block is processed
-	//log.Debug("doCleanUp - begin")
 	p.doCleanUp()
-	//log.Debug("doCleanUp - complete")
 	if p.error != nil {
 		return nil, nil, 0, p.error
 	}
@@ -1241,9 +1215,6 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, allTxs, block.Uncles(), withdrawals)
-
-	//log.Debug("Process - after engine.Finalize()", "block", header.Number, "usedGas", *usedGas,
-	//	"txResultChan size", len(p.txResultChan))
 
 	var allLogs []*types.Log
 	var receipts []*types.Receipt
@@ -1416,7 +1387,6 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			}
 
 			nextToMergeIndex := nextTxIndex
-			log.Debug(fmt.Sprintf("handlePendingResult get nextToMergeResult, pendingConfirmResult: %p\n", p.pendingConfirmResults))
 			nextToMergeResult, ok := p.pendingConfirmResults.Load(nextTxIndex)
 			if !ok {
 				log.Debug("handlePendingResult - can not load next form pendingConfirmResult", "txIndex", nextTxIndex)
@@ -1458,9 +1428,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			p.resultMutex.Lock()
 			// update tx result
 			if result.err != nil {
-				log.Debug("handlePendingResultLoop result has error",
-					"txIndex", result.txReq.txIndex, "txBase", result.slotDB.BaseTxIndex(),
-					"mergedIndex", p.mergedTxIndex.Load())
+				log.Debug("handlePendingResultLoop result has error", "txIndex", result.txReq.txIndex)
 				if result.slotDB.BaseTxIndex() >= int(p.mergedTxIndex.Load()) || OutOfOrderMerge {
 					// should skip the merge phase
 					log.Error("ProcessParallel a failed tx", "resultSlotIndex", result.slotIndex,
@@ -1602,10 +1570,5 @@ func applyTransactionStageFinalization(evm *vm.EVM, result *ExecutionResult, msg
 	receipt.BlockHash = block.Hash()
 	receipt.BlockNumber = block.Number()
 	receipt.TransactionIndex = uint(statedb.TxIndex())
-
-	// Debug purpose
-	// b, _ := receipt.MarshalJSON()
-	// log.Debug("applyTransactionStageFinalization", "receipt", string(b))
-	//
 	return receipt, nil
 }

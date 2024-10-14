@@ -22,7 +22,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 )
@@ -516,9 +515,6 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	loc := scope.Stack.peek()
 	hash := common.Hash(loc.Bytes32())
 	val := interpreter.evm.StateDB.GetState(scope.Contract.Address(), hash)
-	if interpreter.evm.Context.BlockNumber.Uint64() == 699904 && interpreter.evm.StateDB.TxIndex() == 3 {
-		log.Debug("opSload", "addr", scope.Contract.Address().Hex(), "hash", hash.Hex(), "val", val.String())
-	}
 	loc.SetBytes(val.Bytes())
 	return nil, nil
 }

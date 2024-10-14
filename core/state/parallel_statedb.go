@@ -1474,7 +1474,6 @@ func (slotDB *ParallelStateDB) IsParallelReadsValid(isStage2 bool) bool {
 	})
 
 	mainDB := slotDB.parallel.baseStateDB
-	log.Debug("IsParallelReadsValid", "isStage2", isStage2, "txIndex", slotDB.txIndex)
 	// conservatively use kvRead size as the initial size.
 	if isStage2 && slotDB.txIndex < mainDB.TxIndex() {
 		// already merged, no need to check
@@ -1833,16 +1832,9 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 	}
 	// Invalidate journal because reverting across transactions is not allowed.
 	s.clearJournalAndRefund()
-	/*
-		log.Debug("FinalizeForParallel", "txIndex", s.txIndex,
-			"s.stateObjectsPending", s.stateObjectsPending,
-			"s.stateObjectsDirty", s.stateObjectsDirty)
-	*/
 }
 
 func (s *ParallelStateDB) reset() {
-	log.Debug("slotDB reset", "txIndex", s.txIndex,
-		"s.parallel", s.parallel, "conflictCheckStateObjectCache", s.parallel.conflictCheckStateObjectCache)
 	s.StateDB.db = nil
 	s.StateDB.prefetcher = nil
 	s.StateDB.trie = nil
