@@ -784,10 +784,12 @@ func (s *stateObject) lightCopy(db *ParallelStateDB) *stateObject {
 	// the problem. fortunately, the KVRead will record this and compare it with mainDB.
 
 	//object.dirtyStorage = s.dirtyStorage.Copy()
-	s.storageRecordsLock.RLock()
-	object.originStorage = s.originStorage.Copy()
-	object.pendingStorage = s.pendingStorage.Copy()
-	s.storageRecordsLock.RUnlock()
+	/*
+		s.storageRecordsLock.RLock()
+		object.originStorage = s.originStorage.Copy()
+		object.pendingStorage = s.pendingStorage.Copy()
+		s.storageRecordsLock.RUnlock()
+	*/
 	return object
 }
 
