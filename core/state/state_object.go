@@ -760,13 +760,11 @@ func (s *stateObject) ReturnGas(gas *uint256.Int) {}
 
 func (s *stateObject) lightCopy(db *ParallelStateDB) *stateObject {
 	object := newObject(db, s.isParallel, s.address, &s.data)
-	/*
-		if s.trie != nil {
-			s.db.trieParallelLock.Lock()
-			object.trie = db.db.CopyTrie(s.trie)
-			s.db.trieParallelLock.Unlock()
-		}
-	*/
+	if s.trie != nil {
+		s.db.trieParallelLock.Lock()
+		object.trie = s.trie
+		s.db.trieParallelLock.Unlock()
+	}
 	object.code = s.code
 	object.selfDestructed = s.selfDestructed // should be false
 	object.dirtyCode = s.dirtyCode           // it is not used in slot, but keep it is ok
