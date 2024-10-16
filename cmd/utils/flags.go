@@ -2052,7 +2052,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			// 1-2 core for merge (with parallel KV check)
 			// 1-2 core for others (bc optimizer, main)
 			// 1-2 core for possible other concurrent routine
-			parallelNum = max(1, numCpu-6)
+			parallelNum = max(1, (numCpu-6)>>1)
 		}
 		cfg.ParallelTxNum = parallelNum
 	}
