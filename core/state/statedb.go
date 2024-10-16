@@ -759,14 +759,18 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 		}
 		// Encode the account and update the account trie
 		addr := obj.Address()
-		s.trieParallelLock.Lock()
+		mainDB := s
+		if s.isParallel && s.parallel.isSlotDB {
+			mainDB = s.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
 		if err := s.trie.UpdateAccount(addr, &obj.data); err != nil {
 			s.setError(fmt.Errorf("updateStateObject (%x) error: %v", addr[:], err))
 		}
 		if obj.dirtyCode {
 			s.trie.UpdateContractCode(obj.Address(), common.BytesToHash(obj.CodeHash()), obj.code)
 		}
-		s.trieParallelLock.Unlock()
+		mainDB.trieParallelLock.Unlock()
 	}
 
 	s.AccountMux.Lock()
@@ -915,8 +919,12 @@ func (s *StateDB) getStateObjectFromSnapshotOrTrie(addr common.Address) (data *t
 
 	// If snapshot unavailable or reading from it failed, load from the database
 	if data == nil {
-		s.trieParallelLock.Lock()
-		defer s.trieParallelLock.Unlock()
+		mainDB := s
+		if s.isParallel && s.parallel.isSlotDB {
+			mainDB = s.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
+		defer mainDB.trieParallelLock.Unlock()
 		var trie Trie
 		if s.isParallel {
 			// hold lock for parallel

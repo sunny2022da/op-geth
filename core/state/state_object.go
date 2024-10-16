@@ -424,8 +424,12 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	if s.db.snap == nil || err != nil {
 		start := time.Now()
-		s.db.trieParallelLock.Lock()
-		defer s.db.trieParallelLock.Unlock()
+		mainDB := s.db
+		if mainDB.isParallel && mainDB.parallel.isSlotDB {
+			mainDB = s.db.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
+		defer mainDB.trieParallelLock.Unlock()
 		tr, err := s.getTrie()
 		if err != nil {
 			s.db.setError(err)
@@ -761,9 +765,7 @@ func (s *stateObject) ReturnGas(gas *uint256.Int) {}
 func (s *stateObject) lightCopy(db *ParallelStateDB) *stateObject {
 	object := newObject(db, s.isParallel, s.address, &s.data)
 	if s.trie != nil {
-		s.db.trieParallelLock.Lock()
 		object.trie = s.trie
-		s.db.trieParallelLock.Unlock()
 	}
 	object.code = s.code
 	object.selfDestructed = s.selfDestructed // should be false
@@ -807,9 +809,7 @@ func (s *stateObject) deepCopy(db *StateDB) *stateObject {
 		isParallel: s.isParallel,
 	}
 	if s.trie != nil {
-		s.db.trieParallelLock.Lock()
-		object.trie = db.db.CopyTrie(s.trie)
-		s.db.trieParallelLock.Unlock()
+		object.trie = s.trie
 	}
 
 	object.code = s.code
@@ -1014,8 +1014,12 @@ func (s *stateObject) GetCommittedStateNoUpdate(key common.Hash) common.Hash {
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	if s.db.snap == nil || err != nil {
 		start := time.Now()
-		s.db.trieParallelLock.Lock()
-		defer s.db.trieParallelLock.Unlock()
+		mainDB := s.db
+		if s.db.isParallel && s.db.parallel.isSlotDB {
+			mainDB = s.db.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
+		defer mainDB.trieParallelLock.Unlock()
 		tr, err := s.getTrie()
 		if err != nil {
 			s.db.setError(err)

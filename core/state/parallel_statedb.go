@@ -1843,7 +1843,8 @@ func (s *ParallelStateDB) reset() {
 	s.StateDB.snaps = nil
 	s.StateDB.snap = nil
 	s.StateDB.snapParallelLock = sync.RWMutex{}
-	s.StateDB.trieParallelLock = sync.Mutex{}
+	// no need to reset trieParallelLock. the trie lock only used in mainDB
+	//s.StateDB.trieParallelLock = sync.Mutex{}
 	s.StateDB.stateObjectDestructLock = sync.RWMutex{}
 	s.StateDB.stateObjectPendingLock = sync.RWMutex{}
 	s.StateDB.snapDestructs = addressToStructPool.Get().(map[common.Address]struct{})

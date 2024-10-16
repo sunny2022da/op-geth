@@ -500,7 +500,8 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, resultToMer
 				// interrupt its current routine, and switch to the other routine
 				p.switchSlot(staticSlotIndex)
 				// reclaim the result.
-				p.slotDBsToRelease.Store(targetResult.slotDB, targetResult.slotDB)
+				// p.slotDBsToRelease.Store(targetResult.slotDB, targetResult.slotDB)
+				targetResult.slotDB.PutSyncPool(p.parallelDBManager)
 				return nil
 			}
 			resultToMerge = r.(*ParallelTxResult)
@@ -769,7 +770,7 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, merger
 	}
 	// ok, the tx result is valid and can be merged
 	if result.err != nil {
-		p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
+		// p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
 		return result
 	}
 
@@ -890,8 +891,6 @@ func (p *ParallelStateProcessor) confirmTxResults(statedb *state.StateDB, merger
 		p.txReqExecuteRecord[resultTxIndex]++
 		p.txReqExecuteMutex.Unlock()
 	}
-	// after merge, the slotDB will not accessible, reclaim the resource
-	p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
 	return result
 }
 
@@ -1461,6 +1460,9 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			p.commonTxs[pos] = result.txReq.tx
 			p.receipts[pos] = result.receipt
 			p.resultMutex.Unlock()
+			// after merge, the slotDB will not accessible, reclaim the resource
+			//p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
+			result.slotDB.PutSyncPool(p.parallelDBManager)
 		}
 	}
 }
