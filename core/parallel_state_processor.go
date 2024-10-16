@@ -500,8 +500,12 @@ func (p *ParallelStateProcessor) toConfirmTxIndex(targetTxIndex int, resultToMer
 				// interrupt its current routine, and switch to the other routine
 				p.switchSlot(staticSlotIndex)
 				// reclaim the result.
-				// p.slotDBsToRelease.Store(targetResult.slotDB, targetResult.slotDB)
-				targetResult.slotDB.PutSyncPool(p.parallelDBManager)
+				if targetResult.slotDB.UseDAG() {
+					targetResult.slotDB.PutSyncPool(p.parallelDBManager)
+				} else {
+					p.slotDBsToRelease.Store(targetResult.slotDB, targetResult.slotDB)
+				}
+
 				return nil
 			}
 			resultToMerge = r.(*ParallelTxResult)
@@ -1461,8 +1465,11 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			p.receipts[pos] = result.receipt
 			p.resultMutex.Unlock()
 			// after merge, the slotDB will not accessible, reclaim the resource
-			//p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
-			result.slotDB.PutSyncPool(p.parallelDBManager)
+			if result.slotDB.UseDAG() {
+				result.slotDB.PutSyncPool(p.parallelDBManager)
+			} else {
+				p.slotDBsToRelease.Store(result.slotDB, result.slotDB)
+			}
 		}
 	}
 }
