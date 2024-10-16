@@ -2053,6 +2053,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			// 1-2 core for others (bc optimizer, main)
 			// 1-2 core for possible other concurrent routine
 			parallelNum = max(1, (numCpu-6)>>1)
+			parallelNum = min(parallelNum, 8)
 		}
 		cfg.ParallelTxNum = parallelNum
 	}

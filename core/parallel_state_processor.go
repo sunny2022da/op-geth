@@ -410,7 +410,6 @@ func (p *ParallelStateProcessor) executeInSlot(slotIndex int, txReq *ParallelTxR
 					"slotIndex", slotIndex, "txIndex", txReq.txIndex,
 					"conflictIndex", conflictIndex, "baseIndex", txResult.slotDB.BaseTxIndex(),
 					"mIndex", mIndex)
-				p.debugConflictRedoNum++
 			}
 		}
 	}

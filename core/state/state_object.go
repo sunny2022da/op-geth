@@ -378,7 +378,8 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 				var ok bool
 				if value, ok = obj.pendingStorage.GetValue(key); ok {
 					s.pendingStorage.StoreValue(key, value)
-				} else if value, ok = obj.originStorage.GetValue(key); ok {
+				}
+				if value, ok = obj.originStorage.GetValue(key); ok {
 					s.originStorage.StoreValue(key, value)
 				}
 				obj.storageRecordsLock.RUnlock()
