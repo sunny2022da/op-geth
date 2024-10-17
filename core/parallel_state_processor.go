@@ -1102,7 +1102,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// kick off the result handler.
 	isByzantium := p.config.IsByzantium(header.Number)
 	var cumulativeGasUsedPerMergeWorker []uint64
-	parallelMergeEnabled := (cfg.TxDAG != nil) && isByzantium && p.trustDAG && p.parallelMergeEnabled
+	// don't check useDAG here as it is not sure which chan will get the result. so send env to all chan
+	parallelMergeEnabled := p.trustDAG && p.parallelMergeEnabled
 	if parallelMergeEnabled {
 		cumulativeGasUsedPerMergeWorker = make([]uint64, p.parallelNum)
 		for i := 0; i < p.parallelNum; i++ {
