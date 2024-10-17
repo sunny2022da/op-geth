@@ -37,6 +37,7 @@ type ResultHandleEnv struct {
 	gp          *GasPool
 	txCount     int
 	isByzantium bool
+	useDag      bool
 }
 
 type ParallelStateProcessor struct {
@@ -1101,7 +1102,8 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// kick off the result handler.
 	isByzantium := p.config.IsByzantium(header.Number)
 	var cumulativeGasUsedPerMergeWorker []uint64
-	if p.parallelMergeEnabled {
+	parallelMergeEnabled := (cfg.TxDAG != nil) && isByzantium && p.trustDAG && p.parallelMergeEnabled
+	if parallelMergeEnabled {
 		cumulativeGasUsedPerMergeWorker = make([]uint64, p.parallelNum)
 		for i := 0; i < p.parallelNum; i++ {
 			cumulativeGasUsedPerMergeWorker[i] = 0
@@ -1111,6 +1113,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 				gp:          gp,
 				txCount:     allTxCount,
 				isByzantium: isByzantium,
+				useDag:      cfg.TxDAG != nil,
 			}
 		}
 	} else {
@@ -1120,6 +1123,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			gp:          gp,
 			txCount:     allTxCount,
 			isByzantium: isByzantium,
+			useDag:      cfg.TxDAG != nil,
 		}
 	}
 	for {
@@ -1142,7 +1146,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 
 			if int(p.mergedTxIndex.Load())+1 == allTxCount {
 				// all tx results are merged.
-				if p.parallelMergeEnabled {
+				if parallelMergeEnabled {
 					for _, gasUsed := range cumulativeGasUsedPerMergeWorker {
 						*usedGas += gasUsed
 					}
@@ -1161,7 +1165,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		// normal unconfirmedResult, going to be processed by worker.
 		// if it is not byz, it requires root calculation.
 		// if it doesn't trustDAG, it can not do OOO merge and have to do conflictCheck
-		OutOfOrderMerge := isByzantium && p.trustDAG
+		OutOfOrderMerge := (cfg.TxDAG != nil) && isByzantium && p.trustDAG
 		unconfirmedTxIndex := unconfirmedResult.txReq.txIndex
 
 		if !OutOfOrderMerge {
@@ -1240,6 +1244,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 	var isByzantium bool
 	var OutOfOrderMerge bool
 	var CumulativeGasUsed uint64
+	var parallelMergeEnabled bool
 	for {
 		select {
 		case info = <-p.resultProcessChan[index]:
@@ -1247,7 +1252,8 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			gp = info.gp
 			txCount = info.txCount
 			isByzantium = info.isByzantium
-			OutOfOrderMerge = p.trustDAG && isByzantium
+			OutOfOrderMerge = info.useDag && p.trustDAG && isByzantium
+			parallelMergeEnabled = info.useDag && OutOfOrderMerge && p.parallelMergeEnabled
 			CumulativeGasUsed = 0
 			log.Debug("handlePendingResult get Env - continue", "stateDBTx", stateDB.TxIndex(), "gp", gp.String(), "txCount", txCount)
 			continue
@@ -1272,14 +1278,14 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 		for {
 			log.Debug("busy waiting for pending result", "mergedIndex", p.mergedTxIndex.Load(), "allTxCount", txCount)
 			nextTxIndex := int(p.mergedTxIndex.Load()) + 1
-			if OutOfOrderMerge || p.parallelMergeEnabled {
+			if OutOfOrderMerge || parallelMergeEnabled {
 				// skip those already merged.
 				for {
 					log.Debug("OOOMerge check loop", "nextTxIndex", nextTxIndex, "txCount", txCount)
 					if nextTxIndex == txCount {
 						// reach the last, update the mergedTxIndex if needed
 						if p.mergedTxIndex.Load() != int32(nextTxIndex-1) {
-							if p.parallelMergeEnabled {
+							if parallelMergeEnabled {
 								merged, ok := p.txMergedMap.Load(nextTxIndex - 1)
 								if ok && merged == true {
 									// already merged
@@ -1319,7 +1325,7 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 						break
 					} else if nextTxIndex < txCount {
 						// try to merge the nextTxIndex.
-						if p.parallelMergeEnabled {
+						if parallelMergeEnabled {
 							merged, ok := p.txMergedMap.Load(nextTxIndex)
 							if ok && merged == true {
 								// already merged
