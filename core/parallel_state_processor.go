@@ -1107,6 +1107,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		cumulativeGasUsedPerMergeWorker = make([]uint64, p.parallelNum)
 		for i := 0; i < p.parallelNum; i++ {
 			cumulativeGasUsedPerMergeWorker[i] = 0
+			log.Debug("ParallelMerge - send ResultHandleEnv to", "chan", i)
 			// send signal to kick off the merger loop.
 			p.resultProcessChan[i] <- &ResultHandleEnv{
 				statedb:     statedb,
@@ -1118,6 +1119,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 	} else {
 		cumulativeGasUsedPerMergeWorker = make([]uint64, 1)
+		log.Debug("No ParallelMerge - send ResultHandleEnv to chan 0")
 		p.resultProcessChan[0] <- &ResultHandleEnv{
 			statedb:     statedb,
 			gp:          gp,
@@ -1255,10 +1257,10 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			OutOfOrderMerge = info.useDag && p.trustDAG && isByzantium
 			parallelMergeEnabled = info.useDag && OutOfOrderMerge && p.parallelMergeEnabled
 			CumulativeGasUsed = 0
-			log.Debug("handlePendingResult get Env - continue", "stateDBTx", stateDB.TxIndex(), "gp", gp.String(), "txCount", txCount)
+			log.Debug("handlePendingResult get Env - continue", "mergeWorkerIdx", index, "stateDBTx", stateDB.TxIndex(), "gp", gp.String(), "txCount", txCount)
 			continue
 		case receivedTxIdx = <-p.resultAppendChan:
-			log.Debug("handlePendingResult get result", "receivedTxIdx", receivedTxIdx)
+			log.Debug("handlePendingResult get result", "mergeWorkerIdx", index, "receivedTxIdx", receivedTxIdx)
 		}
 
 		// if all merged, notify the main routine. continue to wait for next block.
