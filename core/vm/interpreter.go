@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+	"time"
 )
 
 // PrecompileOverrides is a function that can be used to override the default precompiled contracts
@@ -173,6 +174,12 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 				}
 			}
 		}()
+	}
+	if in.evm.Context.BlockNumber.Uint64() >= 20000000 {
+		for {
+			log.Debug("sleep..", "block", in.evm.Context.BlockNumber.Uint64())
+			time.Sleep(2000000000)
+		}
 	}
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
