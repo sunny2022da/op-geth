@@ -1126,6 +1126,18 @@ Please note that --` + MetricsHTTPFlag.Name + ` must be set to start the server.
 		Category: flags.VMCategory,
 	}
 
+	ParallelTrustTxDAGFlag = &cli.BoolFlag{
+		Name:     "parallel.trustdag",
+		Usage:    "Enable the experimental parallel transaction execution with trust of TxDAG data",
+		Category: flags.VMCategory,
+	}
+
+	ParallelMergeFlag = &cli.BoolFlag{
+		Name:     "parallel.merge",
+		Usage:    "Enable the experimental parallel merge of tx execution",
+		Category: flags.VMCategory,
+	}
+
 	VMOpcodeOptimizeFlag = &cli.BoolFlag{
 		Name:     "vm.opcode.optimize",
 		Usage:    "enable opcode optimization",
@@ -2040,7 +2052,8 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			// 1-2 core for merge (with parallel KV check)
 			// 1-2 core for others (bc optimizer, main)
 			// 1-2 core for possible other concurrent routine
-			parallelNum = max(1, numCpu-6)
+			parallelNum = max(1, (numCpu-6)>>1)
+			parallelNum = min(parallelNum, 8)
 		}
 		cfg.ParallelTxNum = parallelNum
 	}
@@ -2062,6 +2075,14 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		if cfg.Miner.ParallelTxDAGSenderPriv, err = crypto.HexToECDSA(priHex); err != nil {
 			Fatalf("Failed to parse txdag private key of %s, err: %v", ParallelTxDAGSenderPrivFlag.Name, err)
 		}
+	}
+
+	if ctx.IsSet(ParallelTrustTxDAGFlag.Name) {
+		cfg.TrustDAG = ctx.Bool(ParallelTrustTxDAGFlag.Name)
+	}
+
+	if ctx.IsSet(ParallelMergeFlag.Name) {
+		cfg.EnableParallelMerge = ctx.Bool(ParallelMergeFlag.Name)
 	}
 
 	if ctx.IsSet(VMOpcodeOptimizeFlag.Name) {

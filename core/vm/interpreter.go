@@ -40,6 +40,8 @@ type Config struct {
 	OptimismPrecompileOverrides PrecompileOverrides // Precompile overrides for Optimism
 	EnableOpcodeOptimizations   bool                // Enable opcode optimization
 	TxDAG                       types.TxDAG
+	TrustDAG                    bool // Totally trust DAG
+	EnableParallelMerge         bool
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,

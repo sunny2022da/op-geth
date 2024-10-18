@@ -369,8 +369,23 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		pdb := s.db.parallel.baseStateDB
 		obj, exist := pdb.getStateObjectFromStateObjects(s.address)
 		if exist {
+			// if exist in mainDB, try get from mainDB's pending/origin
 			if obj.deleted || obj.selfDestructed {
 				return common.Hash{}
+			} else {
+				obj.storageRecordsLock.RLock()
+				var value common.Hash
+				var ok bool
+				if value, ok = obj.pendingStorage.GetValue(key); ok {
+					s.pendingStorage.StoreValue(key, value)
+				}
+				if value, ok = obj.originStorage.GetValue(key); ok {
+					s.originStorage.StoreValue(key, value)
+				}
+				obj.storageRecordsLock.RUnlock()
+				if ok {
+					return value
+				}
 			}
 		}
 	}
@@ -410,8 +425,12 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	if s.db.snap == nil || err != nil {
 		start := time.Now()
-		s.db.trieParallelLock.Lock()
-		defer s.db.trieParallelLock.Unlock()
+		mainDB := s.db
+		if mainDB.isParallel && mainDB.parallel.isSlotDB {
+			mainDB = s.db.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
+		defer mainDB.trieParallelLock.Unlock()
 		tr, err := s.getTrie()
 		if err != nil {
 			s.db.setError(err)
@@ -747,9 +766,7 @@ func (s *stateObject) ReturnGas(gas *uint256.Int) {}
 func (s *stateObject) lightCopy(db *ParallelStateDB) *stateObject {
 	object := newObject(db, s.isParallel, s.address, &s.data)
 	if s.trie != nil {
-		s.db.trieParallelLock.Lock()
-		object.trie = db.db.CopyTrie(s.trie)
-		s.db.trieParallelLock.Unlock()
+		object.trie = s.trie
 	}
 	object.code = s.code
 	object.selfDestructed = s.selfDestructed // should be false
@@ -770,10 +787,12 @@ func (s *stateObject) lightCopy(db *ParallelStateDB) *stateObject {
 	// the problem. fortunately, the KVRead will record this and compare it with mainDB.
 
 	//object.dirtyStorage = s.dirtyStorage.Copy()
-	s.storageRecordsLock.RLock()
-	object.originStorage = s.originStorage.Copy()
-	object.pendingStorage = s.pendingStorage.Copy()
-	s.storageRecordsLock.RUnlock()
+	/*
+		s.storageRecordsLock.RLock()
+		object.originStorage = s.originStorage.Copy()
+		object.pendingStorage = s.pendingStorage.Copy()
+		s.storageRecordsLock.RUnlock()
+	*/
 	return object
 }
 
@@ -791,9 +810,7 @@ func (s *stateObject) deepCopy(db *StateDB) *stateObject {
 		isParallel: s.isParallel,
 	}
 	if s.trie != nil {
-		s.db.trieParallelLock.Lock()
-		object.trie = db.db.CopyTrie(s.trie)
-		s.db.trieParallelLock.Unlock()
+		object.trie = s.trie
 	}
 
 	object.code = s.code
@@ -809,6 +826,15 @@ func (s *stateObject) deepCopy(db *StateDB) *stateObject {
 	return object
 }
 
+// rebase is similar with deepCopy, instead of do copy, it just rebase the db of the Object.
+// it is used for the case that the original state object in the mainDB is obsoleted or does not exist,
+// so that we can reuse the one generated in slot execution.
+func (object *stateObject) rebase(db *StateDB) *stateObject {
+	object.db = db.getBaseStateDB()
+	object.dbItf = db
+	return object
+}
+
 func (s *stateObject) MergeSlotObject(db Database, dirtyObjs *stateObject, keys StateKeys) {
 	for key := range keys {
 		// In parallel mode, always GetState by StateDB, not by StateObject directly,
@@ -821,10 +847,12 @@ func (s *stateObject) MergeSlotObject(db Database, dirtyObjs *stateObject, keys 
 	dirtyObjs.originStorage.Range(func(keyItf, valueItf interface{}) bool {
 		key := keyItf.(common.Hash)
 		value := valueItf.(common.Hash)
+		s.storageRecordsLock.Lock()
 		// Skip noop changes, persist actual changes
 		if _, ok := s.originStorage.GetValue(key); !ok {
 			s.originStorage.StoreValue(key, value)
 		}
+		s.storageRecordsLock.Unlock()
 		return true
 	})
 }
@@ -987,8 +1015,12 @@ func (s *stateObject) GetCommittedStateNoUpdate(key common.Hash) common.Hash {
 	// If the snapshot is unavailable or reading from it fails, load from the database.
 	if s.db.snap == nil || err != nil {
 		start := time.Now()
-		s.db.trieParallelLock.Lock()
-		defer s.db.trieParallelLock.Unlock()
+		mainDB := s.db
+		if s.db.isParallel && s.db.parallel.isSlotDB {
+			mainDB = s.db.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
+		defer mainDB.trieParallelLock.Unlock()
 		tr, err := s.getTrie()
 		if err != nil {
 			s.db.setError(err)

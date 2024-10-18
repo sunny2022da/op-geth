@@ -225,6 +225,8 @@ type Config struct {
 	EnableOpcodeOptimizing bool
 	EnableParallelTxDAG    bool
 	ParallelTxDAGFile      string
+	TrustDAG               bool
+	EnableParallelMerge    bool
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

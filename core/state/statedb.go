@@ -21,6 +21,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -190,6 +191,7 @@ type StateDB struct {
 	snapParallelLock        sync.RWMutex // for parallel mode, for main StateDB, slot will read snapshot, while processor will write.
 	trieParallelLock        sync.Mutex   // for parallel mode of trie, mostly for get states/objects from trie, lock required to handle trie tracer.
 	stateObjectDestructLock sync.RWMutex // for parallel mode, used in mainDB for mergeSlot and conflict check.
+	stateObjectPendingLock  sync.RWMutex // for parallel merge mode.
 	snapDestructs           map[common.Address]struct{}
 
 	// originalRoot is the pre-state root, before any changes were made.
@@ -216,6 +218,8 @@ type StateDB struct {
 	stateObjectsDirty         map[common.Address]struct{}            // State objects modified in the current execution
 	stateObjectsDestruct      map[common.Address]*types.StateAccount // State objects destructed in the block along with its previous value
 	stateObjectsDestructDirty map[common.Address]*types.StateAccount
+
+	stateObjectMutexMap sync.Map // map[common.Address]Sync.Mutex
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -254,6 +258,9 @@ type StateDB struct {
 	journal        *journal
 	validRevisions []revision
 	nextRevisionId int
+	revisionMutex  sync.RWMutex
+
+	DelayGasFeeMutex sync.Mutex
 
 	// Measurements gathered during execution for debugging purposes
 	AccountReads         time.Duration
@@ -752,14 +759,18 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 		}
 		// Encode the account and update the account trie
 		addr := obj.Address()
-		s.trieParallelLock.Lock()
+		mainDB := s
+		if s.isParallel && s.parallel.isSlotDB {
+			mainDB = s.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
 		if err := s.trie.UpdateAccount(addr, &obj.data); err != nil {
 			s.setError(fmt.Errorf("updateStateObject (%x) error: %v", addr[:], err))
 		}
 		if obj.dirtyCode {
 			s.trie.UpdateContractCode(obj.Address(), common.BytesToHash(obj.CodeHash()), obj.code)
 		}
-		s.trieParallelLock.Unlock()
+		mainDB.trieParallelLock.Unlock()
 	}
 
 	s.AccountMux.Lock()
@@ -908,8 +919,12 @@ func (s *StateDB) getStateObjectFromSnapshotOrTrie(addr common.Address) (data *t
 
 	// If snapshot unavailable or reading from it failed, load from the database
 	if data == nil {
-		s.trieParallelLock.Lock()
-		defer s.trieParallelLock.Unlock()
+		mainDB := s
+		if s.isParallel && s.parallel.isSlotDB {
+			mainDB = s.parallel.baseStateDB
+		}
+		mainDB.trieParallelLock.Lock()
+		defer mainDB.trieParallelLock.Unlock()
 		var trie Trie
 		if s.isParallel {
 			// hold lock for parallel
@@ -1279,23 +1294,25 @@ func NewEmptySlotDB() *ParallelStateDB {
 		//
 		// We are not do simple copy (lightweight pointer copy) as the stateObject can be accessed by different thread.
 
-		stateObjects:                 nil, /* The parallel execution will not use this field, except the base DB */
-		locatStateObjects:            addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
-		codeReadsInSlot:              addressToBytesPool.Get().(map[common.Address][]byte),
-		codeHashReadsInSlot:          addressToHashPool.Get().(map[common.Address]common.Hash),
-		codeChangesInSlot:            addressToStructPool.Get().(map[common.Address]struct{}),
-		kvChangesInSlot:              addressToStateKeysPool.Get().(map[common.Address]StateKeys),
-		kvReadsInSlot:                addressToStoragePool.Get().(map[common.Address]Storage),
-		balanceChangesInSlot:         addressToStructPool.Get().(map[common.Address]struct{}),
-		balanceReadsInSlot:           balancePool.Get().(map[common.Address]*uint256.Int),
-		addrStateReadsInSlot:         addressToBoolPool.Get().(map[common.Address]bool),
-		addrStateChangesInSlot:       addressToBoolPool.Get().(map[common.Address]bool),
-		nonceChangesInSlot:           addressToStructPool.Get().(map[common.Address]struct{}),
-		nonceReadsInSlot:             addressToUintPool.Get().(map[common.Address]uint64),
-		addrSnapDestructsReadsInSlot: addressToBoolPool.Get().(map[common.Address]bool),
-		isSlotDB:                     true,
-		dirtiedStateObjectsInSlot:    addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
-		createdObjectRecord:          addressToStructPool.Get().(map[common.Address]struct{}),
+		stateObjects:                  nil, /* The parallel execution will not use this field, except the base DB */
+		locatStateObjects:             addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
+		codeReadsInSlot:               addressToBytesPool.Get().(map[common.Address][]byte),
+		codeHashReadsInSlot:           addressToHashPool.Get().(map[common.Address]common.Hash),
+		codeChangesInSlot:             addressToStructPool.Get().(map[common.Address]struct{}),
+		kvChangesInSlot:               addressToStateKeysPool.Get().(map[common.Address]StateKeys),
+		kvReadsInSlot:                 addressToStoragePool.Get().(map[common.Address]Storage),
+		balanceChangesInSlot:          addressToStructPool.Get().(map[common.Address]struct{}),
+		balanceReadsInSlot:            balancePool.Get().(map[common.Address]*uint256.Int),
+		addrStateReadsInSlot:          addressToBoolPool.Get().(map[common.Address]bool),
+		addrStateChangesInSlot:        addressToBoolPool.Get().(map[common.Address]bool),
+		nonceChangesInSlot:            addressToStructPool.Get().(map[common.Address]struct{}),
+		nonceReadsInSlot:              addressToUintPool.Get().(map[common.Address]uint64),
+		addrSnapDestructsReadsInSlot:  addressToBoolPool.Get().(map[common.Address]bool),
+		isSlotDB:                      true,
+		dirtiedStateObjectsInSlot:     addressToStateObjectsPool.Get().(map[common.Address]*stateObject),
+		createdObjectRecord:           addressToStructPool.Get().(map[common.Address]struct{}),
+		conflictCheckStateObjectCache: new(sync.Map),
+		conflictCheckKVReadCache:      new(sync.Map),
 	}
 	state := &ParallelStateDB{
 		StateDB: StateDB{
@@ -1500,7 +1517,6 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				tasks <- func() {
 					defer wg.Done()
 					obj.updateRoot()
-
 					// Cache the data until commit. Note, this update mechanism is not symmetric
 					// to the deletion, because whereas it is enough to track account updates
 					// at commit time, deletions need tracking at transaction boundary level to
@@ -1516,7 +1532,6 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				tasks <- func() {
 					defer wg.Done()
 					obj.updateRoot()
-
 					// Cache the data until commit. Note, this update mechanism is not symmetric
 					// to the deletion, because whereas it is enough to track account updates
 					// at commit time, deletions need tracking at transaction boundary level to
@@ -2472,8 +2487,12 @@ func (s *StateDB) AddrPrefetch(slotDb *ParallelStateDB) {
 // MergeSlotDB is for Parallel execution mode, when the transaction has been
 // finalized(dirty -> pending) on execution slot, the execution results should be
 // merged back to the main StateDB.
-func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receipt, txIndex int, fees *DelayedGasFee) *StateDB {
-
+func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receipt,
+	txIndex int, fees *DelayedGasFee, enableParallelMerge bool) *StateDB {
+	if enableParallelMerge {
+		// require lock for s.validRevisions
+		s.revisionMutex.Lock()
+	}
 	for s.nextRevisionId < slotDb.nextRevisionId {
 		if len(slotDb.validRevisions) > 0 {
 			r := slotDb.validRevisions[s.nextRevisionId]
@@ -2484,20 +2503,21 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 			continue
 		}
 	}
-
-	// receipt.Logs use unified log index within a block
-	// align slotDB's log index to the block stateDB's logSize
-	for _, l := range slotReceipt.Logs {
-		l.Index += s.logSize
-		s.logs[s.thash] = append(s.logs[s.thash], l)
+	if enableParallelMerge {
+		// require unlock for s.validRevisions
+		s.revisionMutex.Unlock()
 	}
-
-	s.logSize += slotDb.logSize
 
 	// only merge dirty objects
 	addressesToPrefetch := make([][]byte, 0, len(slotDb.stateObjectsDirty))
 
 	for addr := range slotDb.stateObjectsDirty {
+		var mutex *sync.Mutex
+		if enableParallelMerge {
+			m, _ := s.stateObjectMutexMap.LoadOrStore(addr, new(sync.Mutex))
+			mutex = m.(*sync.Mutex)
+			mutex.Lock()
+		}
 		if _, exist := s.stateObjectsDirty[addr]; !exist {
 			s.stateObjectsDirty[addr] = struct{}{}
 		}
@@ -2506,12 +2526,24 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		dirtyObj, ok := slotDb.parallel.dirtiedStateObjectsInSlot[addr]
 		if !ok {
 			log.Error("parallel merge, but dirty object not exist!", "SlotIndex", slotDb.parallel.SlotIndex, "txIndex:", slotDb.txIndex, "addr", addr)
+			if enableParallelMerge {
+				if mutex == nil {
+					log.Crit("parallel merge incorrectly hold the nil stateObjectMutex")
+					os.Exit(-1)
+				}
+				mutex.Unlock()
+			}
 			continue
 		}
 		mainObj, exist := s.loadStateObj(addr)
 		if !exist || mainObj.deleted {
 			// addr not exist on main DB, the object is created in the merging tx.
-			mainObj = dirtyObj.deepCopy(s)
+			if slotDb.parallel.useDAG {
+				// if use DAG, unconfirmed DB is not touched, so the dirtyObj can be used directly
+				mainObj = dirtyObj.rebase(s)
+			} else {
+				mainObj = dirtyObj.deepCopy(s)
+			}
 			if !dirtyObj.deleted {
 				mainObj.finalise(true)
 			}
@@ -2553,7 +2585,12 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 					// may not empty until block validation. so the pendingStorage filled by the execution of previous txs
 					// in same block may get overwritten by deepCopy here, which causes issue in root calculation.
 					if _, created := s.parallel.createdObjectRecord[addr]; created {
-						newMainObj = dirtyObj.deepCopy(s)
+						if slotDb.parallel.useDAG {
+							// if use DAG, unconfirmed DB is not touched, so the dirtyObj can be used directly
+							newMainObj = dirtyObj.rebase(s)
+						} else {
+							newMainObj = dirtyObj.deepCopy(s)
+						}
 					} else {
 						// Merge the dirtyObject with mainObject
 						if _, balanced := slotDb.parallel.balanceChangesInSlot[addr]; balanced {
@@ -2578,7 +2615,12 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 					}
 				} else {
 					// The object is deleted in the TX.
-					newMainObj = dirtyObj.deepCopy(s)
+					if slotDb.parallel.useDAG {
+						// if use DAG, unconfirmed DB is not touched, so the dirtyObj can be used directly
+						newMainObj = dirtyObj.rebase(s)
+					} else {
+						newMainObj = dirtyObj.deepCopy(s)
+					}
 				}
 
 				// All cases with addrStateChange set to true/false can be deleted. so handle it here.
@@ -2629,6 +2671,13 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 			s.storeStateObj(addr, newMainObj)
 		}
 		addressesToPrefetch = append(addressesToPrefetch, common.CopyBytes(addr[:])) // Copy needed for closure
+		if enableParallelMerge {
+			if mutex == nil {
+				log.Crit("parallel merge incorrectly hold the nil stateObjectMutex")
+				os.Exit(-1)
+			}
+			mutex.Unlock()
+		}
 	}
 
 	if s.prefetcher != nil && len(addressesToPrefetch) > 0 {
@@ -2637,11 +2686,13 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		s.trieParallelLock.Unlock()
 	}
 
+	s.stateObjectPendingLock.Lock()
 	for addr := range slotDb.stateObjectsPending {
 		if _, exist := s.stateObjectsPending[addr]; !exist {
 			s.stateObjectsPending[addr] = struct{}{}
 		}
 	}
+	s.stateObjectPendingLock.Unlock()
 
 	s.stateObjectDestructLock.Lock()
 	for addr := range slotDb.stateObjectsDestruct {
@@ -2664,20 +2715,19 @@ func (s *StateDB) MergeSlotDB(slotDb *ParallelStateDB, slotReceipt *types.Receip
 		s.snapDestructs[k] = struct{}{}
 		s.snapParallelLock.Unlock()
 	}
-
-	s.SetTxContext(slotDb.thash, slotDb.txIndex)
 	return s
 }
 
 // NewParallelDBManager creates a new ParallelDBManager with the specified number of instance
-func NewParallelDBManager(initialCount int, newFunc func() *ParallelStateDB) *ParallelDBManager {
+func NewParallelDBManager(capacity int, newFunc func() *ParallelStateDB) *ParallelDBManager {
 	manager := &ParallelDBManager{
-		pool:    list.New(),
-		mutex:   sync.Mutex{},
-		newFunc: newFunc,
+		capacity: capacity,
+		pool:     list.New(),
+		mutex:    sync.Mutex{},
+		newFunc:  newFunc,
 	}
 
-	for i := 0; i < initialCount; i++ {
+	for i := 0; i < capacity; i++ {
 		manager.pool.PushBack(newFunc())
 	}
 
@@ -2686,9 +2736,10 @@ func NewParallelDBManager(initialCount int, newFunc func() *ParallelStateDB) *Pa
 
 // ParallelDBManager manages a pool of ParallelDB instances
 type ParallelDBManager struct {
-	pool    *list.List
-	mutex   sync.Mutex
-	newFunc func() *ParallelStateDB // Function to create a new ParallelDB instance
+	capacity int
+	pool     *list.List
+	mutex    sync.Mutex
+	newFunc  func() *ParallelStateDB // Function to create a new ParallelDB instance
 }
 
 // allocate acquires a ParallelStateDB instance from the pool
@@ -2710,5 +2761,7 @@ func (m *ParallelDBManager) allocate() *ParallelStateDB {
 func (m *ParallelDBManager) reclaim(s *ParallelStateDB) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	m.pool.PushBack(s)
+	if m.pool.Len() < m.capacity {
+		m.pool.PushBack(s)
+	}
 }
