@@ -1101,13 +1101,12 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 	// ======================= Result handling ================= //
 	// kick off the result handler.
 	isByzantium := p.config.IsByzantium(header.Number)
-	var cumulativeGasUsedPerMergeWorker []uint64
+	cumulativeGasUsedPerMergeWorker := sync.Map{}
+	mergedCount := 0
 	// don't check useDAG here as it is not sure which chan will get the result. so send env to all chan
 	parallelMergeEnabled := p.trustDAG && p.parallelMergeEnabled
 	if parallelMergeEnabled {
-		cumulativeGasUsedPerMergeWorker = make([]uint64, p.parallelNum)
 		for i := 0; i < p.parallelNum; i++ {
-			cumulativeGasUsedPerMergeWorker[i] = 0
 			log.Debug("ParallelMerge - send ResultHandleEnv to", "chan", i)
 			// send signal to kick off the merger loop.
 			p.resultProcessChan[i] <- &ResultHandleEnv{
@@ -1119,7 +1118,6 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 			}
 		}
 	} else {
-		cumulativeGasUsedPerMergeWorker = make([]uint64, 1)
 		log.Debug("No ParallelMerge - send ResultHandleEnv to chan 0")
 		p.resultProcessChan[0] <- &ResultHandleEnv{
 			statedb:     statedb,
@@ -1138,6 +1136,7 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 		}
 		// wait for execute result or the merged all signal.
 		unconfirmedResult := <-p.txResultChan
+
 		if unconfirmedResult.txReq == nil {
 			// get exit signal from merger.
 			log.Debug("Process get unconfirmedResult for complete", "unconfirmedResult.txReq", unconfirmedResult.txReq,
@@ -1145,14 +1144,28 @@ func (p *ParallelStateProcessor) Process(block *types.Block, statedb *state.Stat
 				"vmerr", unconfirmedResult.result.Err,
 				"result.gasUsed", unconfirmedResult.result.UsedGas)
 
-			cumulativeGasUsedPerMergeWorker[unconfirmedResult.slotIndex] = unconfirmedResult.result.UsedGas
-
+			if ug, ok := cumulativeGasUsedPerMergeWorker.Load(unconfirmedResult.slotIndex); !ok {
+				cumulativeGasUsedPerMergeWorker.Store(unconfirmedResult.slotIndex, unconfirmedResult.result.UsedGas)
+				mergedCount++
+			} else {
+				log.Debug("get merge worker complete signal more than once", "merger", unconfirmedResult.slotIndex, "usedGas", ug)
+			}
+			if parallelMergeEnabled {
+				if mergedCount < p.parallelNum {
+					// not all merger completed, continue.
+					// send fake tx to ask merge to complete
+					p.resultAppendChan <- -2
+					continue
+				}
+			}
 			if int(p.mergedTxIndex.Load())+1 == allTxCount {
 				// all tx results are merged.
 				if parallelMergeEnabled {
-					for _, gasUsed := range cumulativeGasUsedPerMergeWorker {
+					cumulativeGasUsedPerMergeWorker.Range(func(k, v interface{}) bool {
+						gasUsed := v.(uint64)
 						*usedGas += gasUsed
-					}
+						return true
+					})
 				} else {
 					*usedGas = unconfirmedResult.result.UsedGas
 				}
