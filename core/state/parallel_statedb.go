@@ -897,7 +897,11 @@ func (s *ParallelStateDB) AddBalance(addr common.Address, amount *uint256.Int) {
 			newStateObject.setBalance(balance)
 			newStateObject.AddBalance(amount)
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
-			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			if amount.Sign() != 0 {
+				// skip the record so there is no record when merging object.
+				// otherwise there is issue for OOO merge when trust DAG.
+				s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			}
 			return
 		}
 		// already dirty, make sure the balance is fixed up since it could be previously dirtied by nonce or KV...
@@ -909,7 +913,9 @@ func (s *ParallelStateDB) AddBalance(addr common.Address, amount *uint256.Int) {
 		}
 
 		object.AddBalance(amount)
-		s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		if amount.Sign() != 0 {
+			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -924,7 +930,9 @@ func (s *ParallelStateDB) SubBalance(addr common.Address, amount *uint256.Int) {
 			balance := s.GetBalance(addr)
 			newStateObject.setBalance(balance)
 			newStateObject.SubBalance(amount)
-			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			if amount.Sign() != 0 {
+				s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			}
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
 			return
 		}
@@ -936,7 +944,9 @@ func (s *ParallelStateDB) SubBalance(addr common.Address, amount *uint256.Int) {
 			object.setBalance(balance)
 		}
 		object.SubBalance(amount)
-		s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		if amount.Sign() != 0 {
+			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -950,7 +960,9 @@ func (s *ParallelStateDB) SetBalance(addr common.Address, amount *uint256.Int) {
 			balance := s.GetBalance(addr)
 			newStateObject.setBalance(balance)
 			newStateObject.SetBalance(amount)
-			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			if balance.Cmp(amount) != 0 {
+				s.parallel.balanceChangesInSlot[addr] = struct{}{}
+			}
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
 			return
 		}
@@ -958,7 +970,9 @@ func (s *ParallelStateDB) SetBalance(addr common.Address, amount *uint256.Int) {
 		balance := s.GetBalance(addr)
 		object.setBalance(balance)
 		object.SetBalance(amount)
-		s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		if balance.Cmp(amount) != 0 {
+			s.parallel.balanceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -970,14 +984,18 @@ func (s *ParallelStateDB) SetNonce(addr common.Address, nonce uint64) {
 			noncePre := s.GetNonce(addr)
 			newStateObject.setNonce(noncePre) // nonce fixup
 			newStateObject.SetNonce(nonce)
-			s.parallel.nonceChangesInSlot[addr] = struct{}{}
+			if noncePre != nonce {
+				s.parallel.nonceChangesInSlot[addr] = struct{}{}
+			}
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
 			return
 		}
 		noncePre := s.GetNonce(addr)
 		object.setNonce(noncePre) // nonce fixup
 		object.SetNonce(nonce)
-		s.parallel.nonceChangesInSlot[addr] = struct{}{}
+		if noncePre != nonce {
+			s.parallel.nonceChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -992,14 +1010,18 @@ func (s *ParallelStateDB) SetCode(addr common.Address, code []byte) {
 			newStateObject.setCode(codeHashPre, codePre)
 			newStateObject.SetCode(codeHash, code)
 			s.parallel.dirtiedStateObjectsInSlot[addr] = newStateObject
-			s.parallel.codeChangesInSlot[addr] = struct{}{}
+			if codeHash.Cmp(codeHashPre) != 0 {
+				s.parallel.codeChangesInSlot[addr] = struct{}{}
+			}
 			return
 		}
 		codePre := s.GetCode(addr) // code fixup
 		codeHashPre := crypto.Keccak256Hash(codePre)
 		object.setCode(codeHashPre, codePre)
 		object.SetCode(codeHash, code)
-		s.parallel.codeChangesInSlot[addr] = struct{}{}
+		if codeHash.Cmp(codeHashPre) != 0 {
+			s.parallel.codeChangesInSlot[addr] = struct{}{}
+		}
 	}
 }
 
@@ -1453,9 +1475,6 @@ func (slotDB *ParallelStateDB) IsParallelReadsValid(isStage2 bool) bool {
 
 	mainDB := slotDB.parallel.baseStateDB
 	// conservatively use kvRead size as the initial size.
-	slotDB.parallel.conflictCheckStateObjectCache = new(sync.Map)
-	slotDB.parallel.conflictCheckKVReadCache = new(sync.Map)
-
 	if isStage2 && slotDB.txIndex < mainDB.TxIndex() {
 		// already merged, no need to check
 		return true
@@ -1670,6 +1689,11 @@ func (s *ParallelStateDB) NeedsRedo() bool {
 	return s.parallel.needsRedo
 }
 
+// NeedsRedo returns true if there is any clear reason that we need to redo this transaction
+func (s *ParallelStateDB) UseDAG() bool {
+	return s.parallel.useDAG
+}
+
 // FinaliseForParallel finalises the state by removing the destructed objects and clears
 // the journal as well as the refunds. Finalise, however, will not push any updates
 // into the tries just yet. Only IntermediateRoot or Commit will do that.
@@ -1678,6 +1702,7 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 	addressesToPrefetch := make([][]byte, 0, len(s.journal.dirties))
 
 	if s.TxIndex() == 0 && len(mainDB.journal.dirties) > 0 {
+		// only tx0 goes into here, no need to consider parallalism
 		mainDB.stateObjectDestructLock.Lock()
 		for addr, acc := range mainDB.stateObjectsDestructDirty {
 			mainDB.stateObjectsDestruct[addr] = acc
@@ -1744,6 +1769,8 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 					"addr", addr)
 			}
 		} else {
+			// should not reach here, deadcode
+			log.Crit("FinaliseForParallel but it is not ParallelStateDB!")
 			obj, exist = s.getStateObjectFromStateObjects(addr)
 		}
 		if !exist {
@@ -1776,11 +1803,12 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 			// 2.with parallel mode, we do obj.finalise(true) on dispatcher, not on slot routine
 			//   obj.finalise(true) will clear its dirtyStorage, will make prefetch broken.
 			if !s.isParallel || !s.parallel.isSlotDB {
+				log.Crit("FinaliseForParallel but it is not ParallelStateDB when obj.finalise!")
 				obj.finalise(true) // Prefetch slots in the background
-			} else {
+			} /* else {
 				// don't do finalise() here as to keep dirtyObjects unchanged in dirtyStorages, which avoid contention issue.
-				obj.fixUpOriginAndResetPendingStorage()
-			}
+				//	obj.fixUpOriginAndResetPendingStorage()
+			}*/
 		}
 
 		if obj.created {
@@ -1807,7 +1835,6 @@ func (s *ParallelStateDB) FinaliseForParallel(deleteEmptyObjects bool, mainDB *S
 }
 
 func (s *ParallelStateDB) reset() {
-
 	s.StateDB.db = nil
 	s.StateDB.prefetcher = nil
 	s.StateDB.trie = nil
@@ -1816,8 +1843,10 @@ func (s *ParallelStateDB) reset() {
 	s.StateDB.snaps = nil
 	s.StateDB.snap = nil
 	s.StateDB.snapParallelLock = sync.RWMutex{}
-	s.StateDB.trieParallelLock = sync.Mutex{}
+	// no need to reset trieParallelLock. the trie lock only used in mainDB
+	//s.StateDB.trieParallelLock = sync.Mutex{}
 	s.StateDB.stateObjectDestructLock = sync.RWMutex{}
+	s.StateDB.stateObjectPendingLock = sync.RWMutex{}
 	s.StateDB.snapDestructs = addressToStructPool.Get().(map[common.Address]struct{})
 	s.StateDB.originalRoot = common.Hash{}
 	s.StateDB.expectedRoot = common.Hash{}
@@ -1825,6 +1854,8 @@ func (s *ParallelStateDB) reset() {
 	s.StateDB.fullProcessed = false
 	s.StateDB.AccountMux = sync.Mutex{}
 	s.StateDB.StorageMux = sync.Mutex{}
+	s.StateDB.revisionMutex = sync.RWMutex{}
+	s.StateDB.DelayGasFeeMutex = sync.Mutex{}
 	s.StateDB.accounts = make(map[common.Hash][]byte)
 	s.StateDB.storages = make(map[common.Hash]map[common.Hash][]byte)
 	s.StateDB.accountsOrigin = make(map[common.Address][]byte)
@@ -1834,6 +1865,7 @@ func (s *ParallelStateDB) reset() {
 	s.StateDB.stateObjectsDirty = addressToStructPool.Get().(map[common.Address]struct{})
 	s.StateDB.stateObjectsDestruct = make(map[common.Address]*types.StateAccount)
 	s.StateDB.stateObjectsDestructDirty = make(map[common.Address]*types.StateAccount)
+	s.StateDB.stateObjectMutexMap = sync.Map{}
 	s.StateDB.dbErr = nil
 	s.StateDB.refund = 0
 	s.StateDB.thash = common.Hash{}
@@ -1869,7 +1901,7 @@ func (s *ParallelStateDB) reset() {
 	s.StateDB.AccountDeleted = 0
 	s.StateDB.StorageDeleted = 0
 	s.StateDB.isParallel = true
-	s.StateDB.parallel = ParallelState{}
+	// s.StateDB.parallel = ParallelState{}
 	s.StateDB.onCommit = nil
 
 	s.parallel.isSlotDB = true
@@ -1896,6 +1928,14 @@ func (s *ParallelStateDB) reset() {
 	s.parallel.createdObjectRecord = addressToStructPool.Get().(map[common.Address]struct{})
 	s.parallel.needsRedo = false
 	s.parallel.useDAG = false
-	s.parallel.conflictCheckStateObjectCache = nil
-	s.parallel.conflictCheckKVReadCache = nil
+	EraseSyncMap(s.parallel.conflictCheckStateObjectCache)
+	EraseSyncMap(s.parallel.conflictCheckKVReadCache)
+
+}
+
+func EraseSyncMap(m *sync.Map) {
+	m.Range(func(key interface{}, value interface{}) bool {
+		m.Delete(key)
+		return true
+	})
 }

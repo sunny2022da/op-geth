@@ -19,6 +19,7 @@ package core
 import (
 	"fmt"
 	"math"
+	"sync/atomic"
 )
 
 // GasPool tracks the amount of gas available during execution of the transactions
@@ -56,4 +57,20 @@ func (gp *GasPool) SetGas(gas uint64) {
 
 func (gp *GasPool) String() string {
 	return fmt.Sprintf("%d", *gp)
+}
+
+// SubGasAtomic deducts the given amount from the pool if enough gas is
+// available and returns an error otherwise.
+// Used for parallel merge of execution
+func (gp *GasPool) SubGasAtomic(amount uint64) error {
+	for {
+		val := uint64(*gp)
+		if val < amount {
+			return ErrGasLimitReached
+		}
+		newVal := val - amount
+		if atomic.CompareAndSwapUint64((*uint64)(gp), val, newVal) {
+			return nil
+		}
+	}
 }
