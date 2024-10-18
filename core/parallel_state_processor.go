@@ -1403,7 +1403,8 @@ func (p *ParallelStateProcessor) handlePendingResultLoop(index int, EnableParall
 			if nextTxIndex == txCount {
 				log.Debug("handlePendingResult merged all in wait loop - send complete Result", "mergeWorkerIdx", index, "error", p.error,
 					"nextTxIndex", nextTxIndex, "mergedIndex", p.mergedTxIndex.Load(), "CumulativeGasUsed", CumulativeGasUsed)
-				p.txResultChan <- &ParallelTxResult{txReq: nil, result: &ExecutionResult{UsedGas: CumulativeGasUsed}}
+				p.txResultChan <- &ParallelTxResult{txReq: nil, slotIndex: index,
+					result: &ExecutionResult{UsedGas: CumulativeGasUsed}}
 				// clear the pending chan.
 				for len(p.resultAppendChan) > 0 {
 					<-p.resultAppendChan
