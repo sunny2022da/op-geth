@@ -297,7 +297,7 @@ func (p *PEVMProcessor) Process(block *types.Block, statedb *state.StateDB, cfg 
 	}
 	pevmBuildLevelsTimer.Update(buildLevelsDuration)
 	pevmRunTimer.Update(parallelRunDuration)
-	log.Info("ProcessParallel tx all done", "block", header.Number, "usedGas", *usedGas,
+	log.Debug("ProcessParallel tx all done", "block", header.Number, "usedGas", *usedGas,
 		"parallelNum", ParallelNum(),
 		"buildLevelsDuration", buildLevelsDuration,
 		"parallelRunDuration", parallelRunDuration,
