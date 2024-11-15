@@ -1960,6 +1960,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			err               error
 		)
 
+		blockProcessedInParallel := false
 		// skip block process if we already have the state, receipts and logs from mining work
 		if !(receiptExist && logExist && stateExist) {
 			// Retrieve the parent block and it's state to execute on top
@@ -2009,8 +2010,17 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 
 			if useSerialProcessor {
 				receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
+				blockProcessedInParallel = false
 			} else {
 				receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
+				blockProcessedInParallel = true
+				if err != nil {
+					// parallel processing fail , fallback to serial with new statDB.
+					log.Warn("ParallelEVM fallback!!!", "error", err.Error())
+					statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root())
+					receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
+					blockProcessedInParallel = false
+				}
 			}
 			if err != nil {
 				bc.reportBlock(block, receipts, err)
@@ -2022,9 +2032,26 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 
 		vstart := time.Now()
 		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
-			bc.reportBlock(block, receipts, err)
-			followupInterrupt.Store(true)
-			return it.index, err
+			if blockProcessedInParallel {
+				// invalid parallel execution, try serial
+				log.Warn("ParallelEVM fallback after ValidateState!!!", "error", err.Error())
+				parent := it.previous()
+				if parent == nil {
+					parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
+				}
+				statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root())
+				receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
+				blockProcessedInParallel = false
+				if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
+					bc.reportBlock(block, receipts, err)
+					followupInterrupt.Store(true)
+					return it.index, err
+				}
+			} else {
+				bc.reportBlock(block, receipts, err)
+				followupInterrupt.Store(true)
+				return it.index, err
+			}
 		}
 
 		vtime := time.Since(vstart)
@@ -2918,6 +2945,16 @@ func (bc *BlockChain) SetupTxDAGGeneration(output string, readFile bool) {
 		}()
 	}
 
+}
+
+func (bc *BlockChain) reGenerateStateForFallBack(parentRoot common.Hash, blockRoot common.Hash) (*state.StateDB, error) {
+	statedb, err := state.New(parentRoot, bc.stateCache, bc.snaps)
+	if err != nil {
+		return nil, err
+	}
+
+	statedb.SetExpectedStateRoot(blockRoot)
+	return statedb, nil
 }
 
 type TxDAGOutputItem struct {
