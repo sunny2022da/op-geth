@@ -539,6 +539,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		log.Info("Parallel V2 enabled", "parallelNum", ParallelNum())
 	} else {
 		bc.processor = NewStateProcessor(chainConfig, bc, engine)
+		bc.serialProcessor = bc.processor
 	}
 	// Start future block processor.
 	bc.wg.Add(1)
@@ -1832,6 +1833,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 	defer func() {
 		DebugInnerExecutionDuration = 0
 	}()
+
+	if bc.serialProcessor == nil {
+		bc.serialProcessor = bc.processor
+	}
+
 	for ; block != nil && err == nil || errors.Is(err, ErrKnownBlock); block, err = it.next() {
 		DebugInnerExecutionDuration = 0
 		// If the chain is terminating, stop processing blocks
@@ -1951,6 +1957,12 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			} else {
 				receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
 				blockProcessedInParallel = true
+				if true {
+					log.Warn("ParallelEVM intentionally fallback!!!")
+					statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root())
+					receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
+					blockProcessedInParallel = false
+				}
 				if err != nil {
 					// parallel processing fail , fallback to serial with new statDB.
 					log.Warn("ParallelEVM fallback!!!", "error", err.Error())
