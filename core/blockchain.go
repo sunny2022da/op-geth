@@ -1953,14 +1953,18 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 				blockProcessedInParallel = true
 				if true {
 					log.Warn("ParallelEVM intentionally fallback!!!")
-					statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root())
+					statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root(), statedb)
+					statedb.StartPrefetcher("chain")
+					activeState = statedb
 					receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
 					blockProcessedInParallel = false
 				}
 				if err != nil {
 					// parallel processing fail , fallback to serial with new statDB.
 					log.Warn("ParallelEVM fallback!!!", "error", err.Error())
-					statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root())
+					statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root(), statedb)
+					statedb.StartPrefetcher("chain")
+					activeState = statedb
 					receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
 					blockProcessedInParallel = false
 				}
@@ -1982,7 +1986,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 				if parent == nil {
 					parent = bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
 				}
-				statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root())
+
+				statedb, err = bc.reGenerateStateForFallBack(parent.Root, block.Root(), statedb)
+				statedb.StartPrefetcher("chain")
+				activeState = statedb
+
 				receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
 				blockProcessedInParallel = false
 				if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
@@ -2823,7 +2831,8 @@ func (bc *BlockChain) SetupTxDAGGeneration(output string, readFile bool) {
 
 }
 
-func (bc *BlockChain) reGenerateStateForFallBack(parentRoot common.Hash, blockRoot common.Hash) (*state.StateDB, error) {
+func (bc *BlockChain) reGenerateStateForFallBack(parentRoot common.Hash, blockRoot common.Hash, oldDB *state.StateDB) (*state.StateDB, error) {
+	oldDB.StopPrefetcher()
 	statedb, err := state.New(parentRoot, bc.stateCache, bc.snaps)
 	if err != nil {
 		return nil, err
