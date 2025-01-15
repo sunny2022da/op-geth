@@ -732,6 +732,10 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 	// to the deletion, because whereas it is enough to track account updates
 	// at commit time, deletions need tracking at transaction boundary level to
 	// ensure we capture state clearing.
+	log.Error("DAV--AccountDebug-updateStateObject",
+		"obj.addr", obj.address.Hex(),
+		"obj.addrHash", obj.addrHash,
+		"accountLen", len(s.accounts))
 	s.accounts[obj.addrHash] = types.SlimAccountRLP(obj.data)
 
 	// Track the original value of mutated account, nil means it was not present.
@@ -1292,6 +1296,10 @@ func (s *StateDB) AccountsIntermediateRoot() {
 				// at commit time, deletions need tracking at transaction boundary level to
 				// ensure we capture state clearing.
 				s.AccountMux.Lock()
+				log.Error("DAV--AccountDebug-AccountsIntermediateRoot",
+					"obj.addr", obj.address.Hex(),
+					"obj.addrHash", obj.addrHash,
+					"accountLen", len(s.accounts))
 				s.accounts[obj.addrHash] = types.SlimAccountRLP(obj.data)
 				s.AccountMux.Unlock()
 			}
