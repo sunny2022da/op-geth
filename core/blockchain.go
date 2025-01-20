@@ -2073,6 +2073,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 
 			// Process block using the parent state as reference point
 			pstart = time.Now()
+			log.Info("DEBUG--INSERTCHAIN", "number", block.NumberU64())
 			if useSerialProcessor {
 				parallelInSequencial.Mark(1)
 				receipts, logs, usedGas, err = bc.serialProcessor.Process(block, statedb, bc.vmConfig)
