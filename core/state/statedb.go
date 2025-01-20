@@ -1597,6 +1597,7 @@ func (s *StateDB) Commit(block uint64, deleteEmptyObjects bool) (common.Hash, er
 	if root == (common.Hash{}) {
 		root = types.EmptyRootHash
 	}
+	log.Info("DAV--AccountDebug-commit", "accountSize", len(s.accounts))
 	// Clear all internal flags at the end of commit operation.
 	s.accounts = make(map[common.Hash][]byte)
 	s.storages = make(map[common.Hash]map[common.Hash][]byte)
