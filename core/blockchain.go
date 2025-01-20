@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -1967,6 +1968,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks, setHead bool) (int, error)
 			pstart = time.Now()
 
 			log.Info("DEBUG--INSERTCHAIN", "number", block.NumberU64())
+			if block.NumberU64() == 49655127 {
+				log.Info("DEBUG--INSERTCHAIN - reach exitpoint", "number", block.NumberU64())
+				os.Exit(0)
+			}
 			receipts, logs, usedGas, err = bc.processor.Process(block, statedb, bc.vmConfig)
 			if err != nil {
 				bc.reportBlock(block, receipts, err)
